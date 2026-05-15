@@ -1,0 +1,194 @@
+.arch {
+  padding: 6rem 2rem;
+  background: linear-gradient(180deg, var(--bg-void) 0%, var(--bg-deep) 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.arch::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,255,157,0.2), transparent);
+}
+
+.inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sectionHeader {
+  text-align: center;
+  margin-bottom: 4rem;
+}
+
+.sectionTag {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 48px);
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+}
+
+.sectionSub {
+  font-size: 15px;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1px;
+  background: var(--border-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: 3rem;
+}
+
+.card {
+  background: var(--bg-card);
+  padding: 2rem;
+  position: relative;
+  transition: background 0.2s;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.card:hover {
+  background: var(--bg-elevated);
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+.cardIcon {
+  font-size: 24px;
+  margin-bottom: 1rem;
+  color: var(--accent);
+  display: block;
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.cardDesc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.cardLine {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.card:hover .cardLine {
+  opacity: 0.4;
+}
+
+/* Stack flow diagram */
+.stackDiagram {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 2rem;
+  overflow-x: auto;
+}
+
+.stackLabel {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.stackFlow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 600px;
+}
+
+.flowBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+
+.flowBox:hover {
+  border-color: var(--accent-green);
+}
+
+.flowLabel {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.flowSub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.flowArrow {
+  font-size: 18px;
+  color: var(--accent-green);
+  flex-shrink: 0;
+  opacity: 0.6;
+}

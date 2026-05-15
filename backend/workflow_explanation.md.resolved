@@ -1,0 +1,224 @@
+# Anvil — Autonomous Red-Team Engine: Workflow Explained
+
+## What It Does (One-Liner)
+
+An autonomous penetration testing pipeline that **finds a vulnerability, exploits it, verifies the exploit is real, and patches the code** — all without human intervention, with full observability.
+
+---
+
+## High-Level Architecture
+
+```
+External Trigger → FastAPI → Celery Queue → CPN Engine → [4 Agents] → Git Commit
+```
+
+```mermaid
+flowchart LR
+    A["🌐 Webhook<br/>(curl / CI)"] --> B["⚡ FastAPI<br/>main.py"]
+    B -->|"async dispatch"| C["📬 Celery<br/>tasks.py"]
+    C --> D["🧠 CPN Engine<br/>graph.py"]
+    D --> E["🔍 Recon"]
+    E --> F["💣 Exploiter"]
+    F --> G["✅ Verifier"]
+    G -->|"retry ≤ 3"| F
+    G -->|"verified"| H["🩹 Patcher"]
+    H --> I["📝 Git Commit"]
+```
+
+---
+
+## Step-by-Step Workflow
+
+### Step 0 — Prerequisites
+
+Before firing the pipeline, you start **4 processes**:
+
+| # | Process | Command | Purpose |
+|---|---------|---------|---------|
+| 1 | **Target App** | `python target_app/server.py` | The intentionally vulnerable Flask app (path traversal at `/files/<path>`) |
+| 2 | **Celery Worker** | `celery -A app.celery_app worker` | Picks up async pipeline tasks from Redis |
+| 3 | **State Synchronizer** | `python -m app.state_synchronizer` | Merges Redis Stream results → SQLite (single-threaded, atomic) |
+| 4 | **FastAPI Ingress** | `uvicorn app.main:app --port 8000` | HTTP webhook endpoint |
+
+---
+
+### Step 1 — Webhook Ingress ([main.py](file:///d:/Hackathons/Anvil/ANVIL/app/main.py))
+
+A deployment webhook hits `POST /webhook`:
+
+```bash
+curl -X POST http://localhost:8000/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"target_url": "http://localhost:9999", "deployment_id": "test-001"}'
+```
+
+**What happens:**
+1. The payload is **validated** against the `WebhookPayload` Pydantic schema
+2. A unique `trace_id` and `task_id` are generated
+3. **W3C Trace Context** is injected (for Omium observability across async boundaries)
+4. The pipeline is dispatched to the **Celery queue** via `run_pipeline.apply_async()`
+5. Returns **HTTP 202** immediately (non-blocking)
+
+---
+
+### Step 2 — Celery Task Picks Up ([tasks.py](file:///d:/Hackathons/Anvil/ANVIL/app/tasks.py))
+
+The Celery worker picks up the task and:
+
+1. **Restores** the W3C trace context from the FastAPI ingress (so spans are linked)
+2. **Initializes** the `MasterState` — a Pydantic model that acts as the "coloured token" in the CPN
+3. **Checkpoints** the initial state to SQLite
+4. **Builds and runs** the CPN engine (`build_red_team_cpn()` → `cpn.run(state)`)
+
+---
+
+### Step 3 — CPN Engine Orchestration ([graph.py](file:///d:/Hackathons/Anvil/ANVIL/app/graph.py))
+
+The **Colored Petri Net** is the brain of the system. It defines:
+
+- **10 Places** (states): `ingress`, `recon_ready`, `exploit_ready`, `exploit_done`, `patch_ready`, `patch_done`, `end_safe`, `end_error`, etc.
+- **5 Transitions** (actions): each wraps an agent function
+- **Deterministic routing**: pure Python `if/else` — the LLM is **never** consulted for routing decisions
+
+```mermaid
+stateDiagram-v2
+    [*] --> ingress
+    ingress --> recon_ready: T1 Start Recon
+    recon_ready --> exploit_ready: T2 Vulns Found
+    recon_ready --> end_safe: T2 No Vulns
+    exploit_ready --> exploit_done: T3 Run Exploit
+    exploit_done --> patch_ready: T4 Verified ✅
+    exploit_done --> exploit_ready: T4 Failed (retry ≤ 3) 🔄
+    exploit_done --> end_error: T4 Max Retries ❌
+    patch_ready --> patch_done: T5 Patch & Commit
+    
+    end_safe --> [*]
+    end_error --> [*]
+    patch_done --> [*]
+```
+
+**Execution loop:**
+1. Check if current place is **terminal** → stop
+2. Find the **first enabled transition** (guard condition passes)
+3. **Fire** it (execute the agent logic)
+4. **Checkpoint** the updated state to SQLite
+5. Repeat (max 20 steps as absolute safety limit)
+
+---
+
+### Step 4 — Agent 1: Recon ([recon.py](file:///d:/Hackathons/Anvil/ANVIL/app/agents/recon.py))
+
+> *"What's vulnerable?"*
+
+1. **HTTP Probing** — sends GET requests to common paths including path traversal attempts:
+   - `/`, `/health`, `/admin`
+   - `/files/../secrets/flag.txt`, `/files/..%2Fsecrets%2Fflag.txt`
+2. **LLM Analysis** — sends probe results to GPT-4o with `response_format: json_object`
+3. **Pydantic Validation** — output is validated against `ReconOutput` schema
+4. **Fallback** — if LLM returns garbage, a deterministic fallback parses the raw probe data
+
+**Output:** `ReconOutput` with `target_url`, `detected_framework`, and `vulnerable_endpoints[]`
+
+---
+
+### Step 5 — Agent 2: Exploiter ([exploiter.py](file:///d:/Hackathons/Anvil/ANVIL/app/agents/exploiter.py))
+
+> *"Can I actually exploit it?"*
+
+1. **LLM Payload Generation** — GPT-4o generates a standalone Python exploit script
+2. **Sandbox Execution** — the script runs inside the [AST-validated sandbox](file:///d:/Hackathons/Anvil/ANVIL/app/sandbox.py):
+   - **AST Import filtering** blocks `os`, `subprocess`, `shutil`, `ctypes`
+   - **AST Call filtering** blocks `os.remove`, `os.system`, `eval`, `exec`
+   - **Stripped environment** (`env={}`)
+   - **5-second hard timeout**
+   - **SHA-256 signature dedup** prevents retrying the same failing payload
+3. **Secret Extraction** — if `FLAG{...}` appears in stdout, it's captured
+
+**Output:** `ExploitOutput` with `vulnerability_confirmed`, `exploit_payload_used`, `sandbox_stdout`, `extracted_secret`
+
+---
+
+### Step 6 — Agent 3: Verifier ([verifier.py](file:///d:/Hackathons/Anvil/ANVIL/app/agents/verifier.py))
+
+> *"Is this proof real or hallucinated?"*
+
+> [!IMPORTANT]
+> The Verifier is **NOT an LLM**. It is pure deterministic Python — the anti-hallucination checkpoint.
+
+Three checks:
+1. `vulnerability_confirmed` must be `True`
+2. `sandbox_stdout` must contain `EXPLOIT_SUCCESS` or `FLAG{`
+3. If `extracted_secret` is set, a regex `FLAG\{[A-Za-z0-9_\-]+\}` must match in stdout
+
+**On failure:** increments `retry_count` and routes back to the Exploiter (up to 3 retries), then halts at `end_error`.
+
+**Output:** `VerificationResult` with `verified`, `reason`, `expected_pattern`, `actual_value`
+
+---
+
+### Step 7 — Agent 4: Patcher ([patcher.py](file:///d:/Hackathons/Anvil/ANVIL/app/agents/patcher.py))
+
+> *"Fix it and commit."*
+
+1. **Branch creation** — `git checkout -b fix/<trace_id>`
+2. **Read vulnerable source** — reads `target_app/server.py`
+3. **LLM Fix Generation** — GPT-4o produces the complete fixed code with path sanitization
+4. **Write patched file** — overwrites `server.py`
+5. **Git commit** — stages and commits with a detailed PR-style message containing:
+   - Vulnerability report
+   - Proof of exploitation (sandbox stdout)
+   - Fix explanation and confidence score
+   - Trace ID for observability linkage
+
+**Output:** `PatchOutput` with `unified_diff`, `pull_request_title`, `pull_request_body`, `confidence_score`
+
+---
+
+## Data Flow Summary
+
+```mermaid
+flowchart TD
+    W["WebhookPayload"] --> MS["MasterState<br/>(coloured token)"]
+    MS --> R["ReconOutput"]
+    R --> E["ExploitOutput"]
+    E --> V["VerificationResult"]
+    V -->|verified| P["PatchOutput"]
+    V -->|failed| E
+
+    style MS fill:#1a1a2e,stroke:#e94560,color:#fff
+    style R fill:#16213e,stroke:#0f3460,color:#fff
+    style E fill:#16213e,stroke:#e94560,color:#fff
+    style V fill:#16213e,stroke:#00b4d8,color:#fff
+    style P fill:#16213e,stroke:#06d6a0,color:#fff
+```
+
+All inter-agent data passes through **strict Pydantic v2 schemas** — no free-form text is ever exchanged between agents.
+
+---
+
+## Safety Mechanisms
+
+| Layer | Mechanism | What It Prevents |
+|-------|-----------|------------------|
+| **Sandbox** | AST import/call filtering | Dangerous system calls from LLM-generated code |
+| **Sandbox** | `env={}` stripped environment | Environment variable leakage |
+| **Sandbox** | 5s hard timeout | Infinite loops / resource exhaustion |
+| **Sandbox** | SHA-256 dedup circuit breaker | Retrying the same failing payload |
+| **CPN** | 20-step max | Infinite graph traversal |
+| **CPN** | 3-retry circuit breaker at verification | Exploit→Verify death spiral |
+| **Schemas** | Pydantic v2 strict validation | Context poisoning / malformed data |
+| **SQLite** | Checkpoint after every transition | Crash recovery |
+
+---
+
+## Observability (Omium + OpenTelemetry)
+
+Every step emits **spans** with rich attributes:
+- `cpn.transition`, `cpn.step`, `cpn.retry_count`
+- `llm.prompt_tokens`, `llm.completion_tokens`
+- `agent.decision_rationale` (first 500 chars of LLM output)
+- `tool.execution_status`, `sandbox.stdout_length`
+- `verification.result` (`VERIFIED` / `REJECTED`)
+- `patch.branch`, `patch.confidence`
+
+W3C Trace Context is propagated across the **async boundary** (FastAPI → Celery) so the entire pipeline appears as one connected trace in the Omium dashboard.

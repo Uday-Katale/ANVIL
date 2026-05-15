@@ -1,0 +1,320 @@
+.terminal {
+  background: #060608;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 420px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  position: relative;
+}
+
+.terminal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 255, 157, 0.008) 3px,
+    rgba(0, 255, 157, 0.008) 4px
+  );
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.terminal:hover {
+  border-color: rgba(0, 255, 157, 0.15);
+}
+
+.flagMode {
+  border-color: var(--accent-red) !important;
+  box-shadow: 0 0 40px rgba(255, 60, 60, 0.2), inset 0 0 80px rgba(255, 60, 60, 0.04) !important;
+  animation: pulse-red 1.5s 3;
+}
+
+.flagMode .titleBar {
+  background: rgba(255, 60, 60, 0.15);
+  border-bottom-color: rgba(255, 60, 60, 0.3);
+}
+
+.titleBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #0c0c10;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  transition: background 0.4s, border-color 0.4s;
+}
+
+.dots {
+  display: flex;
+  gap: 7px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: block;
+}
+
+.termTitle {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  font-family: var(--font-mono);
+}
+
+.termMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lineCounter {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.runningBadge {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-orange);
+  animation: blink 1.2s infinite;
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.doneBadge {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-green);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.8;
+  scrollbar-width: thin;
+  scrollbar-color: #1a1a2a transparent;
+  position: relative;
+  z-index: 2;
+}
+
+.output::-webkit-scrollbar { width: 4px; }
+.output::-webkit-scrollbar-thumb { background: #1a1a2a; border-radius: 2px; }
+
+.idle {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.idlePrompt {
+  color: var(--accent-green);
+}
+
+.idleCursor {
+  width: 8px;
+  height: 14px;
+  background: var(--accent-green);
+  display: inline-block;
+  animation: blink 1s infinite;
+}
+
+.idleText {
+  color: var(--text-muted);
+}
+
+.line {
+  display: flex;
+  gap: 8px;
+  padding: 1px 0;
+  animation: slideInLeft 0.15s ease both;
+}
+
+.lineIn {
+  animation: slideInLeft 0.12s ease both;
+}
+
+.prompt {
+  color: var(--accent-green);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 13px;
+  background: var(--accent-green);
+  animation: blink 1s infinite;
+  vertical-align: text-bottom;
+}
+
+/* Line type styles */
+.lineSystem  { color: var(--text-muted); }
+.lineEvent   { color: var(--accent-blue); }
+.lineAgent   { color: var(--accent-green); font-weight: 500; }
+.lineData    { color: #9a9ac0; padding-left: 0; }
+.lineWarn    { color: var(--accent-orange); }
+.lineSuccess { color: var(--accent-green); }
+.lineCode    { color: #c8b9ff; font-style: italic; }
+.lineFinish  { color: var(--accent-blue); }
+
+.lineFlag {
+  background: rgba(255, 60, 60, 0.1);
+  border: 1px solid rgba(255, 60, 60, 0.4);
+  border-radius: 4px;
+  padding: 6px 12px;
+  margin: 4px 0;
+  display: block;
+}
+
+.flagText {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-red);
+  text-shadow: 0 0 20px rgba(255, 60, 60, 0.6);
+  letter-spacing: 1px;
+  animation: pulse-red 1s 3;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: #0c0c10;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.fireBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 22px;
+  background: var(--accent-green);
+  color: #06060b;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+
+.fireBtn:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(0, 255, 157, 0.4);
+  transform: translateY(-1px);
+}
+
+.fireBtnDisabled {
+  background: rgba(255,255,255,0.06) !important;
+  color: var(--text-muted) !important;
+  cursor: not-allowed !important;
+  opacity: 0.7;
+}
+
+.idleNoRepo {
+  color: rgba(255, 60, 60, 0.55);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.resetBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+
+.resetBtn:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.viewScriptBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  background: transparent;
+}
+
+.viewScriptBtn:hover {
+  color: var(--accent-green);
+  border-color: rgba(0, 255, 157, 0.3);
+}
+
+.retryBadge {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-orange);
+  font-family: var(--font-display);
+  font-weight: 600;
+  animation: blink 1.5s infinite;
+}
+
+.failedBadge {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-red);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.scanIdBadge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+}
+
+.continuation {
+  display: inline-block;
+}

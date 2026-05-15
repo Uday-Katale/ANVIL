@@ -1,0 +1,119 @@
+.petriWrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 255, 157, 0.03);
+}
+
+.headerTitle {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+}
+
+.headerSub {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  font-family: var(--font-mono);
+}
+
+.svgWrap {
+  padding: 1.5rem 1rem;
+  overflow-x: auto;
+}
+
+.svg {
+  width: 100%;
+  max-width: 100%;
+  min-width: 600px;
+  height: auto;
+  display: block;
+}
+
+.nodeActive {
+  animation: node-pulse 1.5s ease infinite;
+}
+
+.nodeDone {
+  /* steady glow */
+}
+
+.pulseRing {
+  animation: ring-expand 1.5s ease infinite;
+}
+
+.edgeFlowing {
+  stroke: #00ff9d;
+  stroke-width: 2;
+}
+
+@keyframes node-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes ring-expand {
+  0% { r: 28; opacity: 0.6; }
+  100% { r: 44; opacity: 0; }
+}
+
+.footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0,0,0,0.2);
+}
+
+.legend {
+  display: flex;
+  gap: 20px;
+}
+
+.legItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.legDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.currentState {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.currentState span {
+  font-weight: 700;
+  margin-left: 4px;
+}

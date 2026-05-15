@@ -1,0 +1,255 @@
+.inputWrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inputHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.inputTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+}
+
+.inputHint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+}
+
+.inputRow {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.inputRow.focused {
+  border-color: rgba(0, 255, 157, 0.4);
+  box-shadow: 0 0 0 3px rgba(0, 255, 157, 0.06);
+}
+
+.inputRow.hasError {
+  border-color: rgba(255, 60, 60, 0.5);
+  box-shadow: 0 0 0 3px rgba(255, 60, 60, 0.06);
+}
+
+.inputPrefix {
+  display: flex;
+  align-items: center;
+  padding: 0 14px 0 14px;
+  gap: 12px;
+  background: rgba(0,0,0,0.2);
+  flex-shrink: 0;
+}
+
+.ghIcon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.inputPrefixSep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.07);
+}
+
+.input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 13px 12px;
+  min-width: 0;
+  letter-spacing: 0.3px;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.submitBtn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 20px;
+  background: rgba(0, 255, 157, 0.1);
+  border: none;
+  border-left: 1px solid rgba(0, 255, 157, 0.2);
+  color: var(--accent-green);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.submitBtn:hover {
+  background: rgba(0, 255, 157, 0.18);
+  color: #fff;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--accent-red);
+  font-family: var(--font-mono);
+  animation: slideInLeft 0.15s ease;
+}
+
+.examples {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.exLabel {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.exBtn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 3px 10px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.3px;
+}
+
+.exBtn:hover {
+  color: var(--accent-blue);
+  border-color: rgba(0, 180, 255, 0.3);
+  background: rgba(0, 180, 255, 0.05);
+}
+
+/* Confirmed state */
+.confirmed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  background: rgba(0, 255, 157, 0.05);
+  border: 1px solid rgba(0, 255, 157, 0.25);
+  border-radius: var(--radius-md);
+  animation: fadeInUp 0.25s ease;
+}
+
+.confirmedLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.confirmedIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 255, 157, 0.12);
+  border: 1px solid rgba(0, 255, 157, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-green);
+  flex-shrink: 0;
+}
+
+.confirmedInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.confirmedLabel {
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.confirmedRepo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.confirmedRepo:hover {
+  color: var(--accent-blue);
+}
+
+.changeBtn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-weight: 600;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.changeBtn:hover {
+  color: var(--accent-red);
+  border-color: rgba(255, 60, 60, 0.3);
+}
+
+.disabledRow { opacity: 0.5; }
+.submitBtnDisabled { opacity: 0.5; cursor: not-allowed !important; }

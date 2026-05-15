@@ -1,0 +1,350 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard {
+  background: var(--bg-deep);
+  padding: 5rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 255, 157, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 157, 0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+.dashInner {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  position: relative;
+}
+
+.dashHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.dashTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashLive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  animation: pulse-green 2s infinite;
+}
+
+.dashTitle {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 3vw, 40px);
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+}
+
+.dashSub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.dashGithubBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  white-space: nowrap;
+  background: rgba(255,255,255,0.02);
+}
+
+.dashGithubBtn:hover {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}
+
+.petriRow {
+  width: 100%;
+}
+
+.bottomGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  min-height: 480px;
+}
+
+@media (max-width: 900px) {
+  .bottomGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.terminalCol,
+.diffCol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.panelLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.labelDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.labelHint {
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* Steps section */
+.steps {
+  margin-top: 2rem;
+  padding-top: 3rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.stepsHeader {
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin-bottom: 2rem;
+}
+
+.stepsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.step {
+  padding: 1.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.step::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--c);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.step:hover {
+  border-color: var(--c);
+  transform: translateY(-3px);
+}
+
+.step:hover::after {
+  opacity: 0.8;
+}
+
+.stepNum {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--c);
+  opacity: 0.25;
+  line-height: 1;
+  margin-bottom: 1rem;
+}
+
+.stepTitle {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.stepDesc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.75;
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+/* Step rows */
+.stepRow {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .stepRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stepBadge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border-subtle);
+  border-top: 2px solid var(--sc);
+  border-radius: var(--radius-md);
+  position: sticky;
+  top: 72px;
+}
+
+.stepBadgeNum {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--sc);
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.stepBadgeLabel {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.stepContent {
+  min-width: 0;
+}
+
+.scanningBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.scanningDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: pulse-green 2s infinite;
+}
+
+.scanningRepo {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scanningStatus {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-green);
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+
+.progressBar {
+  width: 100%;
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.errorBanner {
+  padding: 12px 18px;
+  background: rgba(255,60,60,0.07);
+  border: 1px solid rgba(255,60,60,0.25);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-red);
+}

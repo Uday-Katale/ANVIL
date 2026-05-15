@@ -1,0 +1,135 @@
+"""
+Verifier Agent — deterministic, non-generative validation node.
+
+This is NOT an LLM. It is a pure Python function that procedurally
+checks whether the Exploiter's sandbox_stdout actually proves the
+vulnerability was exploited. It compares Action_Requested vs
+System_State_Change.
+
+If verification fails, it generates a structured error payload
+for the Orchestrator to trigger a re-generation or graceful halt.
+"""
+
+from __future__ import annotations
+
+import logging
+
+try:
+    import omium as _omium_mod
+except Exception:
+    _omium_mod = None
+
+
+def _noop_trace(*a, **kw):
+    def _d(fn): return fn
+    return _d
+
+
+class _OmiumShim:
+    trace = staticmethod(_noop_trace)
+
+
+omium = _omium_mod if _omium_mod is not None else _OmiumShim()
+
+from app.schemas import ExploitOutput, VerificationResult
+from app.telemetry import trace_operation
+
+logger = logging.getLogger(__name__)
+
+# The single deterministic success marker the Exploiter must print
+_SUCCESS_MARKER = "EXPLOIT_SUCCESS"
+
+# Minimum stdout length (excluding marker) to consider as real evidence
+_MIN_EVIDENCE_LENGTH = 10
+
+
+@omium.trace("verifier_agent", span_type="agent")
+def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
+    """
+    Deterministically verify that the exploit produced real side-effects.
+
+    Rules:
+    1. vulnerability_confirmed must be True
+    2. sandbox_stdout must contain the EXPLOIT_SUCCESS marker
+    3. stdout must contain meaningful content beyond just the marker
+       (prevents hallucinated empty exploits)
+    """
+    with trace_operation(
+        "verifier_agent",
+        attributes={
+            "agent.name": "verifier",
+            "agent.is_deterministic": True,
+        },
+    ) as span:
+        stdout = exploit.sandbox_stdout
+
+        # ── Check 1: exploit self-reported success ────────────────────────
+        if not exploit.vulnerability_confirmed:
+            reason = (
+                "Exploit agent reported vulnerability_confirmed=False. "
+                "The sandbox did not confirm exploitation."
+            )
+            span.set_attribute("verification.result", "REJECTED")
+            span.set_attribute("verification.reason", reason)
+            logger.warning("Verification FAILED: %s", reason)
+            return VerificationResult(
+                verified=False,
+                reason=reason,
+                expected_pattern=f"{_SUCCESS_MARKER} in stdout",
+                actual_value=stdout[:200],
+            )
+
+        # ── Check 2: stdout contains the success marker ──────────────────
+        if _SUCCESS_MARKER not in stdout:
+            reason = (
+                f"stdout does not contain the success marker "
+                f"'{_SUCCESS_MARKER}'. "
+                "The exploit may have hallucinated success."
+            )
+            span.set_attribute("verification.result", "REJECTED")
+            span.set_attribute("verification.reason", reason)
+            logger.warning("Verification FAILED: %s", reason)
+            return VerificationResult(
+                verified=False,
+                reason=reason,
+                expected_pattern=_SUCCESS_MARKER,
+                actual_value=stdout[:200],
+            )
+
+        # ── Check 3: stdout has meaningful evidence beyond the marker ─────
+        # Strip the marker and check if there's real content
+        evidence_text = stdout.replace(_SUCCESS_MARKER, "").strip()
+        if len(evidence_text) < _MIN_EVIDENCE_LENGTH:
+            reason = (
+                f"stdout contains '{_SUCCESS_MARKER}' but has no meaningful "
+                f"evidence ({len(evidence_text)} chars of content). "
+                "The exploit may have printed the marker without actually "
+                "extracting any data. This looks like a hallucinated exploit."
+            )
+            span.set_attribute("verification.result", "REJECTED")
+            span.set_attribute("verification.reason", reason)
+            logger.warning("Verification FAILED: %s", reason)
+            return VerificationResult(
+                verified=False,
+                reason=reason,
+                expected_pattern=f"{_SUCCESS_MARKER} + meaningful evidence",
+                actual_value=stdout[:200],
+            )
+
+        # ── All checks passed ────────────────────────────────────────────
+        has_evidence = bool(exploit.exploit_evidence)
+        reason = (
+            f"Exploitation verified: stdout contains '{_SUCCESS_MARKER}' "
+            f"with {len(evidence_text)} chars of evidence"
+            + (f" (evidence captured)" if has_evidence else "")
+            + "."
+        )
+        span.set_attribute("verification.result", "VERIFIED")
+        span.set_attribute("verification.evidence_length", len(evidence_text))
+        logger.info("Verification PASSED: %s", reason)
+        return VerificationResult(
+            verified=True,
+            reason=reason,
+            expected_pattern=_SUCCESS_MARKER,
+            actual_value=stdout[:200],
+        )

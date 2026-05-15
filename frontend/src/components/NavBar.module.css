@@ -1,0 +1,156 @@
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 0 2rem;
+  height: 60px;
+  background: transparent;
+  transition: background 0.3s, border-bottom 0.3s;
+}
+
+.nav.scrolled {
+  background: rgba(6, 6, 11, 0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logoIcon {
+  width: 28px;
+  height: 28px;
+  animation: flicker 8s infinite;
+  filter: drop-shadow(0 0 6px rgba(0, 255, 157, 0.5));
+}
+
+.logoText {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--accent-green);
+  text-shadow: 0 0 20px rgba(0, 255, 157, 0.4);
+}
+
+.logoBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid rgba(0, 255, 157, 0.3);
+  border-radius: 3px;
+  color: var(--accent-green-dim);
+  letter-spacing: 1px;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.link {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  transition: color 0.2s;
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.link:hover {
+  color: var(--accent-green);
+}
+
+.githubBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  color: var(--accent-green);
+  border: 1px solid rgba(0, 255, 157, 0.4);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 255, 157, 0.05);
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+
+.githubBtn:hover {
+  background: rgba(0, 255, 157, 0.12);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 12px rgba(0, 255, 157, 0.2);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  animation: pulse-green 2s infinite;
+}
+
+.statusText {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--accent-green);
+  text-transform: uppercase;
+}
+
+.clock {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  margin-left: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.navUser {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  background: rgba(0,255,157,0.05);
+  border: 1px solid rgba(0,255,157,0.15);
+  border-radius: 20px;
+}
+
+.navAvatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,255,157,0.3);
+}
+
+.navLogin {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-green);
+}
