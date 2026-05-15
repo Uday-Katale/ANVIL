@@ -90,26 +90,151 @@ def clone_repo(token: str, repo_url: str, scan_id: str) -> str:
 
 # ── Read repo files for analysis ─────────────────────────────────────────────
 
-# Extensions we'll feed to the recon agent for vulnerability analysis
-_SCANNABLE_EXTENSIONS = {
+# HIGH-PRIORITY: actual source code files likely to contain vulnerabilities
+_CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".rb", ".php",
     ".go", ".rs", ".c", ".cpp", ".h", ".cs", ".swift", ".kt",
-    ".html", ".yml", ".yaml", ".json", ".toml", ".ini", ".cfg",
+}
+
+# LOW-PRIORITY: config / data files — only included if budget allows
+_CONFIG_EXTENSIONS = {
+    ".html", ".yml", ".yaml", ".toml", ".ini", ".cfg",
     ".env", ".sql", ".sh", ".bash", ".dockerfile",
 }
 
-_SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".venv", "venv",
-    "dist", "build", ".next", ".nuxt", "vendor", ".tox",
+# ALL scannable extensions (union of both)
+_SCANNABLE_EXTENSIONS = _CODE_EXTENSIONS | _CONFIG_EXTENSIONS
+
+# Files that should NEVER be scanned (eat token budget, no security value)
+_SKIP_FILENAMES = {
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "composer.lock",
+    "Pipfile.lock", "poetry.lock", "Cargo.lock", "Gemfile.lock",
+    "go.sum", ".DS_Store", "thumbs.db",
+    "__anvil_launcher__.py",
 }
 
-_MAX_FILE_SIZE = 100_000  # 100 KB limit per file
+# Filename patterns that indicate data files, not code
+_DATA_FILE_PATTERNS = {
+    "dataset", "training", "embedding", "vector", "checkpoint",
+    "weights", "model_config", "manifest", "fixture", "seed",
+    "migration", "schema.json", "swagger", "openapi",
+}
+
+_SKIP_DIRS = {
+    # Package / dependency directories
+    "node_modules", ".git", "__pycache__", ".venv", "venv", "env",
+    "dist", "build", ".next", ".nuxt", "vendor", ".tox",
+    ".eggs", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "site-packages", ".cargo", "target",
+    # Data / ML / assets directories (RAG, CV, ML projects)
+    "data", "datasets", "models", "weights", "checkpoints",
+    "embeddings", "vectors", "corpus", "raw_data", "processed_data",
+    "training_data", "test_data", "fixtures", "samples",
+    "assets", "static", "public", "media", "uploads", "images",
+    "logs", "coverage", "htmlcov",
+    # Documentation / non-code
+    "docs", "doc", ".github", ".vscode", ".idea",
+    "migrations", "alembic",
+}
+
+_MAX_CODE_FILE_SIZE = 100_000   # 100 KB for source code files
+_MAX_CONFIG_FILE_SIZE = 15_000  # 15 KB for config/data files (skip large JSONs)
+
+# Keywords that boost a file's security relevance score
+_SECURITY_KEYWORDS = {
+    "route", "router", "handler", "endpoint", "view", "controller",
+    "auth", "login", "session", "token", "password", "secret",
+    "upload", "file", "download", "exec", "eval", "query", "sql",
+    "deserializ", "pickle", "yaml.load", "marshal", "shelve",
+    "subprocess", "os.system", "popen", "shell",
+    "request", "response", "api", "server", "app", "main",
+    "middleware", "security", "sanitize", "validate",
+    "cors", "csrf", "xss", "injection",
+}
+
+# Filenames that are almost always security-relevant
+_HIGH_PRIORITY_NAMES = {
+    "app.py", "main.py", "server.py", "wsgi.py", "asgi.py",
+    "routes.py", "views.py", "handlers.py", "api.py", "urls.py",
+    "auth.py", "login.py", "middleware.py", "settings.py", "config.py",
+    "index.js", "app.js", "server.js", "index.ts", "app.ts",
+    "routes.js", "routes.ts", "controller.js", "controller.ts",
+    ".env", ".env.example", "docker-compose.yml", "Dockerfile",
+}
+
+
+def _file_priority_score(rel_path: str, content: str) -> int:
+    """
+    Assign a priority score to a file. Higher = more likely to contain
+    security-relevant code. Used to sort files so the most important
+    ones are analyzed first within the token budget.
+    """
+    score = 0
+    filename = Path(rel_path).name.lower()
+    ext = Path(rel_path).suffix.lower()
+
+    # High-priority filenames
+    if filename in _HIGH_PRIORITY_NAMES:
+        score += 100
+
+    # Source code files > config files
+    if ext in _CODE_EXTENSIONS:
+        score += 50
+    elif ext in _CONFIG_EXTENSIONS:
+        score += 10
+
+    # Boost files with security-relevant keywords in content
+    content_lower = content[:5000].lower()  # Check first 5KB only
+    keyword_hits = sum(1 for kw in _SECURITY_KEYWORDS if kw in content_lower)
+    score += keyword_hits * 8
+
+    # Boost files that define routes/endpoints
+    if any(pattern in content_lower for pattern in (
+        "@app.route", "@router.", "app.get(", "app.post(", "app.put(",
+        "app.delete(", "express()", "fastapi", "flask", "django",
+        "def get(", "def post(", "def put(", "def delete(",
+    )):
+        score += 80
+
+    # Penalize test files
+    if "test" in filename or "spec" in filename or rel_path.startswith("test"):
+        score -= 30
+
+    # Penalize deeply nested files (likely less important)
+    depth = len(Path(rel_path).parts)
+    if depth > 4:
+        score -= (depth - 4) * 5
+
+    return score
+
+
+def _is_data_file(filename: str, content: str) -> bool:
+    """
+    Heuristic check: is this file actually data rather than code?
+    Catches large JSON arrays/objects that are dataset dumps,
+    not configuration files.
+    """
+    lower_name = filename.lower()
+
+    # Known data file patterns
+    if any(pattern in lower_name for pattern in _DATA_FILE_PATTERNS):
+        return True
+
+    # Large JSON files that start with '[' are almost certainly data arrays
+    if lower_name.endswith(".json") and len(content) > 5000:
+        stripped = content.lstrip()
+        if stripped.startswith("["):
+            return True
+
+    return False
 
 
 def read_repo_files(repo_dir: str) -> list[dict]:
     """
     Walk *repo_dir* and read scannable source files.
-    Returns list of {"path": relative_path, "content": text_content}.
+    Returns list of {"path": relative_path, "content": text_content,
+                     "priority": int} sorted by security relevance
+    (highest priority first).
     """
     files = []
     root = Path(repo_dir)
@@ -123,8 +248,8 @@ def read_repo_files(repo_dir: str) -> list[dict]:
         if not path.is_file():
             continue
 
-        # Skip ANVIL-generated launcher files
-        if path.name == "__anvil_launcher__.py":
+        # Skip known junk files
+        if path.name in _SKIP_FILENAMES:
             continue
 
         # Check if any parent directory should be skipped
@@ -132,19 +257,39 @@ def read_repo_files(repo_dir: str) -> list[dict]:
         if any(part in _SKIP_DIRS for part in rel.parts):
             continue
 
-        if path.suffix.lower() not in _SCANNABLE_EXTENSIONS:
+        ext = path.suffix.lower()
+        if ext not in _SCANNABLE_EXTENSIONS:
             continue
 
-        if path.stat().st_size > _MAX_FILE_SIZE:
+        # Apply size limits based on file type
+        file_size = path.stat().st_size
+        max_size = _MAX_CODE_FILE_SIZE if ext in _CODE_EXTENSIONS else _MAX_CONFIG_FILE_SIZE
+        if file_size > max_size:
             continue
 
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
-            files.append({"path": str(rel), "content": content})
         except Exception:
-            pass  # Skip unreadable files silently
+            continue  # Skip unreadable files silently
 
-    logger.info("Read %d scannable files from %s", len(files), repo_dir)
+        # Skip data files masquerading as config (large JSON arrays, datasets)
+        if _is_data_file(path.name, content):
+            logger.debug("Skipping data file: %s", rel)
+            continue
+
+        priority = _file_priority_score(str(rel), content)
+        files.append({"path": str(rel), "content": content, "priority": priority})
+
+    # Sort by priority (highest first) so the most important files
+    # are analyzed first within the token budget
+    files.sort(key=lambda f: f["priority"], reverse=True)
+
+    logger.info(
+        "Read %d scannable files from %s (top priority: %s)",
+        len(files),
+        repo_dir,
+        files[0]["path"] if files else "none",
+    )
     return files
 
 

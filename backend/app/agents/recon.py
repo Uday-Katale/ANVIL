@@ -52,11 +52,214 @@ def _get_client() -> OpenAI:
 
 # ── Mode 1: Source Code Analysis ─────────────────────────────────────────────
 
+# Budget per batch in characters (~30K tokens)
+_BATCH_CHAR_BUDGET = 120_000
+# Maximum number of batches to analyze (prevents runaway API calls)
+_MAX_BATCHES = 4
+
+
+def _build_system_prompt(repo_url: str) -> str:
+    """Build the system prompt for source code vulnerability analysis."""
+    example_json = json.dumps({
+        "target_url": repo_url,
+        "detected_framework": "Flask/Express/Django/etc",
+        "vulnerable_endpoints": [
+            {
+                "path": "src/routes/files.py:45",
+                "method": "GET",
+                "injection_vector": "Path traversal via unsanitized user input in os.path.join"
+            }
+        ]
+    }, indent=2)
+
+    return (
+        "You are an expert security code reviewer. Analyze the source code below "
+        "and identify ALL security vulnerabilities.\n\n"
+        "You MUST return valid JSON with EXACTLY this structure:\n"
+        f"```json\n{example_json}\n```\n\n"
+        "Rules:\n"
+        "- target_url: the repository URL (string)\n"
+        "- detected_framework: the main framework used in the project (string)\n"
+        "- vulnerable_endpoints: array of objects, each with:\n"
+        "  - path: file path and line number where the vulnerability exists (e.g. 'server.py:23')\n"
+        "  - method: HTTP method associated (GET/POST/etc), or GET if not applicable\n"
+        "  - injection_vector: detailed description of the vulnerability and how it can be exploited\n"
+        "- Focus on: path traversal, SQL injection, XSS, command injection, SSRF, "
+        "insecure deserialization, hardcoded secrets, auth bypass, IDOR, "
+        "unsafe file handling, insecure crypto, race conditions\n"
+        "- Include ALL vulnerabilities found, ranked by severity\n"
+        "- Be specific about the exact line/function and the attack vector\n"
+        "- If no vulnerabilities found, return empty vulnerable_endpoints array\n"
+        "- Do NOT report vulnerabilities in test files or documentation\n"
+    )
+
+
+def _parse_llm_recon_response(raw_json: str, repo_url: str) -> Optional[ReconOutput]:
+    """
+    Parse and validate the LLM's JSON response into a ReconOutput.
+    Tries multiple strategies:
+      1. Direct Pydantic validation
+      2. Manual JSON extraction (handles markdown-wrapped responses)
+      3. Partial extraction of vulnerable_endpoints array
+    Returns None if all strategies fail.
+    """
+    import re
+
+    # Strategy 1: direct validation
+    try:
+        return ReconOutput.model_validate_json(raw_json)
+    except Exception as exc:
+        logger.debug("Direct validation failed: %s", exc)
+
+    # Strategy 2: try to extract JSON from markdown code blocks
+    try:
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw_json, re.DOTALL)
+        if json_match:
+            return ReconOutput.model_validate_json(json_match.group(1))
+    except Exception as exc:
+        logger.debug("Markdown extraction failed: %s", exc)
+
+    # Strategy 3: parse raw JSON and manually construct ReconOutput
+    try:
+        data = json.loads(raw_json)
+        from app.schemas import VulnerableEndpoint, HttpMethod
+
+        endpoints = []
+        raw_endpoints = data.get("vulnerable_endpoints", [])
+        for ep in raw_endpoints:
+            try:
+                # Normalize method field
+                method_str = str(ep.get("method", "GET")).upper()
+                try:
+                    method = HttpMethod(method_str)
+                except ValueError:
+                    method = HttpMethod.GET
+
+                endpoints.append(VulnerableEndpoint(
+                    path=str(ep.get("path", "unknown")),
+                    method=method,
+                    injection_vector=str(ep.get("injection_vector", ep.get("description", "Unknown vulnerability"))),
+                ))
+            except Exception:
+                continue
+
+        return ReconOutput(
+            target_url=data.get("target_url", repo_url),
+            detected_framework=data.get("detected_framework", "Unknown"),
+            vulnerable_endpoints=endpoints,
+        )
+    except Exception as exc:
+        logger.debug("Manual construction failed: %s", exc)
+
+    return None
+
+
+def _split_files_into_batches(files: list[dict], budget: int = _BATCH_CHAR_BUDGET) -> list[list[dict]]:
+    """
+    Split files into batches that fit within the character budget.
+    Files are already sorted by priority (highest first from read_repo_files).
+    """
+    batches = []
+    current_batch = []
+    current_size = 0
+
+    for f in files:
+        content_len = len(f["content"])
+
+        # If a single file exceeds the budget, truncate it
+        if content_len > budget:
+            truncated = dict(f)
+            truncated["content"] = f["content"][:budget - 1000] + "\n... (truncated)"
+            content_len = len(truncated["content"])
+            f = truncated
+
+        if current_size + content_len > budget and current_batch:
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+
+        current_batch.append(f)
+        current_size += content_len
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
+
+def _analyze_batch(
+    client,
+    batch: list[dict],
+    repo_url: str,
+    system_prompt: str,
+    batch_num: int,
+    total_batches: int,
+) -> list:
+    """
+    Analyze a single batch of files and return the vulnerable endpoints found.
+    Includes retry logic for LLM failures.
+    """
+    # Build code digest for this batch
+    code_digest_parts = []
+    for f in batch:
+        code_digest_parts.append(f"### {f['path']}\n```\n{f['content']}\n```")
+    code_digest = "\n\n".join(code_digest_parts)
+
+    batch_context = ""
+    if total_batches > 1:
+        batch_context = (
+            f"\n\n[NOTE: This is batch {batch_num}/{total_batches} of the repository. "
+            f"Analyze ONLY the code shown here. This batch contains {len(batch)} files.]\n"
+        )
+
+    user_content = f"Repository: {repo_url}{batch_context}\n\nSource code:\n{code_digest}"
+
+    # Try up to 2 times for each batch
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=LLM_MODEL,
+                temperature=LLM_TEMPERATURE,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+
+            raw_json = response.choices[0].message.content
+            logger.info(
+                "Batch %d/%d LLM response (attempt %d): %s",
+                batch_num, total_batches, attempt + 1, raw_json[:300],
+            )
+
+            result = _parse_llm_recon_response(raw_json, repo_url)
+            if result is not None:
+                return result.vulnerable_endpoints
+
+            logger.warning(
+                "Batch %d/%d: could not parse LLM response (attempt %d/%d)",
+                batch_num, total_batches, attempt + 1, max_retries,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "Batch %d/%d: LLM call failed (attempt %d/%d): %s",
+                batch_num, total_batches, attempt + 1, max_retries, exc,
+            )
+
+    return []
+
+
 @omium.trace("recon_agent", span_type="agent")
 def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
     """
     Scan cloned source code for vulnerabilities.
     Reads files from disk and sends them to GPT-4o for analysis.
+
+    For large repos, splits files into multiple batches and analyzes
+    each batch separately, then merges all discovered vulnerabilities.
     """
     from app.github_service import read_repo_files
 
@@ -64,9 +267,10 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
         "recon_agent_source",
         attributes={"agent.name": "recon", "agent.mode": "source_code", "agent.repo_url": repo_url},
     ) as span:
-        # Step 1: read source files
+        # Step 1: read source files (pre-sorted by security relevance)
         files = read_repo_files(repo_dir)
-        span.set_attribute("recon.file_count", len(files))
+        total_file_count = len(files)
+        span.set_attribute("recon.file_count", total_file_count)
 
         if not files:
             logger.warning("No scannable files found in %s", repo_dir)
@@ -76,87 +280,71 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
                 vulnerable_endpoints=[],
             )
 
-        # Step 2: build a compact code digest for the LLM
-        # Truncate individual files to keep total prompt size reasonable
-        code_digest_parts = []
-        total_chars = 0
-        max_total = 80_000  # ~20K tokens budget for code
+        logger.info(
+            "Recon: analyzing %d files from %s (top files: %s)",
+            total_file_count,
+            repo_dir,
+            ", ".join(f["path"] for f in files[:5]),
+        )
 
-        for f in files:
-            content = f["content"]
-            if total_chars + len(content) > max_total:
-                remaining = max_total - total_chars
-                if remaining > 500:
-                    content = content[:remaining] + "\n... (truncated)"
-                else:
-                    break
-            code_digest_parts.append(f"### {f['path']}\n```\n{content}\n```")
-            total_chars += len(content)
+        # Step 2: split into batches for chunked analysis
+        batches = _split_files_into_batches(files)
+        num_batches = min(len(batches), _MAX_BATCHES)
+        batches = batches[:num_batches]
 
-        code_digest = "\n\n".join(code_digest_parts)
+        span.set_attribute("recon.batch_count", num_batches)
+        span.set_attribute("recon.files_per_batch", [len(b) for b in batches])
+        logger.info(
+            "Recon: split into %d batches (%s files each)",
+            num_batches,
+            [len(b) for b in batches],
+        )
 
-        # Step 3: LLM-assisted vulnerability analysis
+        # Step 3: analyze each batch
         client = _get_client()
+        system_prompt = _build_system_prompt(repo_url)
 
-        example_json = json.dumps({
-            "target_url": repo_url,
-            "detected_framework": "Flask/Express/Django/etc",
-            "vulnerable_endpoints": [
-                {
-                    "path": "src/routes/files.py:45",
-                    "method": "GET",
-                    "injection_vector": "Path traversal via unsanitized user input in os.path.join"
-                }
-            ]
-        }, indent=2)
+        all_endpoints = []
+        detected_framework = "Unknown"
 
-        system_prompt = (
-            "You are an expert security code reviewer. Analyze the source code below "
-            "and identify ALL security vulnerabilities.\n\n"
-            "You MUST return valid JSON with EXACTLY this structure:\n"
-            f"```json\n{example_json}\n```\n\n"
-            "Rules:\n"
-            "- target_url: the repository URL (string)\n"
-            "- detected_framework: the main framework used in the project (string)\n"
-            "- vulnerable_endpoints: array of objects, each with:\n"
-            "  - path: file path and line number where the vulnerability exists (e.g. 'server.py:23')\n"
-            "  - method: HTTP method associated (GET/POST/etc), or GET if not applicable\n"
-            "  - injection_vector: detailed description of the vulnerability and how it can be exploited\n"
-            "- Focus on: path traversal, SQL injection, XSS, command injection, SSRF, "
-            "insecure deserialization, hardcoded secrets, auth bypass, IDOR\n"
-            "- Include ALL vulnerabilities found, ranked by severity\n"
-            "- Be specific about the exact line/function and the attack vector\n"
-            "- If no vulnerabilities found, return empty vulnerable_endpoints array\n"
-        )
-
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            temperature=LLM_TEMPERATURE,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Repository: {repo_url}\n\nSource code:\n{code_digest}"},
-            ],
-        )
-
-        raw_json = response.choices[0].message.content
-        logger.info("LLM recon response: %s", raw_json[:500])
-        span.set_attribute("llm.prompt_tokens", response.usage.prompt_tokens)
-        span.set_attribute("llm.completion_tokens", response.usage.completion_tokens)
-        span.set_attribute("agent.decision_rationale", raw_json[:500])
-
-        # Step 4: validate through Pydantic contract
-        try:
-            result = ReconOutput.model_validate_json(raw_json)
-        except Exception as exc:
-            logger.warning("LLM output failed validation (%s), returning empty", exc)
-            result = ReconOutput(
-                target_url=repo_url,
-                detected_framework="Unknown",
-                vulnerable_endpoints=[],
+        for i, batch in enumerate(batches, 1):
+            logger.info(
+                "Recon batch %d/%d: analyzing %d files (%s ...)",
+                i, num_batches, len(batch),
+                ", ".join(f["path"] for f in batch[:3]),
             )
 
-        logger.info("Source recon found %d vulnerable endpoints", len(result.vulnerable_endpoints))
+            batch_endpoints = _analyze_batch(
+                client, batch, repo_url, system_prompt, i, num_batches,
+            )
+            all_endpoints.extend(batch_endpoints)
+
+            logger.info(
+                "Recon batch %d/%d: found %d vulnerabilities",
+                i, num_batches, len(batch_endpoints),
+            )
+
+        # Step 4: deduplicate endpoints (same file+method+vector = same vuln)
+        seen = set()
+        unique_endpoints = []
+        for ep in all_endpoints:
+            key = (ep.path.split(":")[0], ep.method, ep.injection_vector[:50])
+            if key not in seen:
+                seen.add(key)
+                unique_endpoints.append(ep)
+
+        result = ReconOutput(
+            target_url=repo_url,
+            detected_framework=detected_framework,
+            vulnerable_endpoints=unique_endpoints,
+        )
+
+        span.set_attribute("recon.total_vulns", len(unique_endpoints))
+        span.set_attribute("recon.batches_analyzed", num_batches)
+        logger.info(
+            "Source recon complete: %d unique vulnerabilities from %d batches (%d total files)",
+            len(unique_endpoints), num_batches, total_file_count,
+        )
         return result
 
 
