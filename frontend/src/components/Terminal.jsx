@@ -16,9 +16,13 @@ const TYPE_CLASSES = {
 
 export default function Terminal({ logs, phase, repoUrl, retryInfo, scanId }) {
   const bottomRef = useRef(null);
+  const outputRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll within the terminal output container only, not the entire page
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
   }, [logs]);
 
   const hasFlag = logs.some(l => l.type === 'flag');
@@ -50,7 +54,7 @@ export default function Terminal({ logs, phase, repoUrl, retryInfo, scanId }) {
         </div>
       </div>
 
-      <div className={styles.output}>
+      <div className={styles.output} ref={outputRef}>
         {logs.length === 0 && (
           <div className={styles.idle}>
             <span className={styles.idlePrompt}>$</span>

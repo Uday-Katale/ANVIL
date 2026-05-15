@@ -117,10 +117,23 @@ export default function HeroSection({ onScrollToDashboard }) {
         </div>
       </div>
 
-      <div className={styles.scrollIndicator}>
-        <span>SCROLL TO DASHBOARD</span>
-        <div className={styles.scrollArrow}></div>
-      </div>
+      <button
+  className={styles.scrollIndicator}
+  onClick={() => {
+    if (onScrollToDashboard) {
+      onScrollToDashboard();
+    } else {
+      window.scrollTo({
+        top: window.innerHeight,
+        behavior: 'smooth',
+      });
+    }
+  }}
+  aria-label="Scroll to dashboard"
+>
+  <span>SCROLL TO DASHBOARD</span>
+  <div className={styles.scrollArrow}></div>
+</button>
     </section>
   );
 }

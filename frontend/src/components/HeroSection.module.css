@@ -264,7 +264,7 @@
 }
 
 .scrollIndicator {
-  position: absolute;
+  position: relative;
   bottom: 2rem;
   left: 50%;
   transform: translateX(-50%);
@@ -277,7 +277,22 @@
   color: var(--text-muted);
   text-transform: uppercase;
   animation: fadeInUp 1s 1.2s ease both;
-  z-index: 10;
+  z-index: 20;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 12px 20px;
+  transition: color 0.3s;
+  font-family: var(--font-display);
+  user-select: none;
+}
+
+.scrollIndicator:hover {
+  color: var(--accent-green);
+}
+
+.scrollIndicator:hover .scrollArrow {
+  border-color: var(--accent-green);
 }
 
 .scrollArrow {
@@ -287,9 +302,11 @@
   border-bottom: 2px solid var(--text-muted);
   transform: rotate(45deg);
   animation: bounce 2s infinite;
+  transition: border-color 0.3s;
 }
 
 @keyframes bounce {
   0%, 100% { transform: rotate(45deg) translateY(0); }
   50% { transform: rotate(45deg) translateY(5px); }
 }
+
