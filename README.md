@@ -1,7 +1,7 @@
 
-# ANVIL
+# AEGIS
 
-### Autonomous Vulnerability Neutralization & Intelligence Layer
+### Autonomous Exploit Generation & Intelligence Security
 
 An autonomous, fail-closed red-team engine that discovers, exploits, verifies, and patches security vulnerabilities — then opens a Pull Request with the fix — all with zero human intervention and full end-to-end observability.
 
