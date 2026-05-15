@@ -1,4 +1,3 @@
-<div align="center">
 
 # ANVIL
 
@@ -70,72 +69,9 @@ The result: a system that autonomously clones a GitHub repository, scans its sou
 
 ## System Architecture
 
-```mermaid
-flowchart TB
-    subgraph Frontend["Frontend — React + Vite (port 5173)"]
-        UI["Web Dashboard"]
-        SSE["SSE Client<br/>Real-time streaming"]
-        PETRI["Petri Net Visualizer"]
-        DIFF["Diff Viewer"]
-        TERM["Live Terminal"]
-    end
 
-    subgraph Auth["GitHub OAuth 2.0"]
-        OAUTH["OAuth Authorization"]
-        CB["Token Exchange<br/>/api/auth/callback"]
-        COOKIE["Signed HttpOnly Cookie<br/>(itsdangerous)"]
-    end
+<img width="1600" height="1064" alt="image" src="https://github.com/user-attachments/assets/ca0dac52-c9d6-4161-a55b-10bde5a4be78" />
 
-    subgraph Backend["Backend — FastAPI (port 8000)"]
-        API["REST API Layer<br/>/api/scan, /api/auth/*"]
-        PIPE["Pipeline Runner<br/>asyncio.to_thread"]
-        CPN["CPN Engine<br/>10 Places, 5 Transitions"]
-
-        subgraph Agents["Multi-Agent System"]
-            RECON["Recon Agent<br/>(GPT-4o + Source Analysis)"]
-            EXPLOIT["Exploit Agent<br/>(GPT-4o + AST Sandbox)"]
-            VERIFY["Verifier Agent<br/>(Deterministic, NO LLM)"]
-            PATCH["Patcher Agent<br/>(GPT-4o + GitHub API)"]
-        end
-    end
-
-    subgraph Infra["Infrastructure"]
-        REDIS["Redis<br/>SSE Event Queue"]
-        SQLITE["SQLite WAL<br/>State Checkpoints"]
-        OMIUM["Omium SDK<br/>OTLP gRPC Traces"]
-    end
-
-    subgraph External["External Services"]
-        GH_API["GitHub REST API<br/>Clone, Branch, PR"]
-        OPENAI["OpenAI API<br/>GPT-4o"]
-        OTEL["Omium Cloud<br/>Trace Dashboard"]
-    end
-
-    UI --> SSE
-    UI --> PETRI
-    UI --> DIFF
-    UI --> TERM
-    UI -->|"POST /api/scan"| API
-    UI -->|"GET /api/scan/{id}/stream"| SSE
-
-    OAUTH --> CB --> COOKIE
-    COOKIE --> API
-
-    API -->|"asyncio.to_thread"| PIPE
-    PIPE --> CPN
-    CPN --> RECON --> EXPLOIT --> VERIFY --> PATCH
-    VERIFY -->|"retry <= 3"| EXPLOIT
-    PIPE -->|"SSE events"| REDIS --> SSE
-
-    CPN -->|"checkpoint after<br/>every transition"| SQLITE
-    CPN --> OMIUM
-
-    RECON --> OPENAI
-    EXPLOIT --> OPENAI
-    PATCH --> OPENAI
-    PATCH --> GH_API
-    OMIUM --> OTEL
-```
 
 ---
 
