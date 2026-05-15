@@ -220,7 +220,7 @@ Each event payload:
 
 ## Evaluation Criteria Alignment
 
-This section maps ANVIL's architecture directly to the hackathon evaluation rubric to demonstrate maximum alignment with each scoring criterion.
+This section maps AEGIS's architecture directly to the hackathon evaluation rubric to demonstrate maximum alignment with each scoring criterion.
 
 | Criterion | How AEGIS Addresses It |
 |-----------|----------------------|
