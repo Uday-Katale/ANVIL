@@ -57,7 +57,7 @@ These problems are not hypothetical. They are the primary reasons security teams
 
 ## The Solution
 
-ANVIL eliminates all three failure modes through a mathematically grounded architecture:
+AEGIS eliminates all three failure modes through a mathematically grounded architecture:
 
 - **A Colored Petri Net (CPN) execution engine** replaces free-form agent chaining with deterministic, graph-based orchestration. The LLM is never consulted for routing decisions — pure Python `if/else` logic governs all state transitions.
 - **A dedicated Verifier Agent** (zero LLM dependency) acts as a cryptographic checkpoint: exploit output must contain deterministic proof markers (`FLAG{...}` or `EXPLOIT_SUCCESS`) before the pipeline advances. This is the anti-hallucination gate.
@@ -79,7 +79,7 @@ The result: a system that autonomously clones a GitHub repository, scans its sou
 
 ### Production-Grade Observability (Omium SDK + W3C Trace Context)
 
-ANVIL does not operate as a black box. Every pipeline execution emits structured OpenTelemetry spans with rich attributes — `cpn.transition`, `cpn.step`, `cpn.retry_count`, `llm.prompt_tokens`, `sandbox.stdout_length`, `verification.result`, and `patch.confidence`. The Omium SDK exports traces via OTLP gRPC to `ingest.monium.yandex.cloud:443`.
+AEGIS does not operate as a black box. Every pipeline execution emits structured OpenTelemetry spans with rich attributes — `cpn.transition`, `cpn.step`, `cpn.retry_count`, `llm.prompt_tokens`, `sandbox.stdout_length`, `verification.result`, and `patch.confidence`. The Omium SDK exports traces via OTLP gRPC to `ingest.monium.yandex.cloud:443`.
 
 Critically, **W3C Trace Context is propagated across asynchronous boundaries** (from the FastAPI request handler into `asyncio.to_thread` and through the CPN engine), ensuring the entire multi-agent pipeline — from the initial HTTP request to the final GitHub PR — appears as a single, connected distributed trace. This is not bolted-on logging; it is first-class, standards-compliant observability.
 
@@ -98,7 +98,7 @@ Unlike agent frameworks that use LLMs for routing (introducing non-determinism a
 
 ### Real-World Integration, Not Mock Services
 
-ANVIL operates against real APIs:
+AEGIS operates against real APIs:
 - **GitHub REST API** via PyGithub — clone repos, create branches, push commits, open Pull Requests using the authenticated user's OAuth token
 - **GitHub OAuth 2.0** — full authorization code flow with signed HttpOnly cookies
 - **OpenAI GPT-4o** — structured JSON output with Pydantic validation for all agent responses
@@ -210,7 +210,7 @@ Each event payload:
 
 This section maps ANVIL's architecture directly to the hackathon evaluation rubric to demonstrate maximum alignment with each scoring criterion.
 
-| Criterion | How ANVIL Addresses It |
+| Criterion | How AEGIS Addresses It |
 |-----------|----------------------|
 | **Autonomy** | The entire pipeline — from repository cloning through vulnerability discovery, exploitation, verification, patching, and Pull Request creation — executes without any human intervention. The user provides a repo URL; ANVIL delivers a fix PR. Zero manual steps. |
 | **Observability** | Every CPN transition, LLM call, sandbox execution, and verification decision emits structured OpenTelemetry spans via the Omium SDK. W3C Trace Context propagation across async boundaries produces a single connected trace for the full pipeline. This is not logging — it is production-grade distributed tracing. |
@@ -310,7 +310,7 @@ anvil/
 
 ## Fail-Closed Safety Mechanisms
 
-ANVIL enforces security at every layer. If any validation step fails, the system **refuses to proceed** (fail-closed).
+AEGIS enforces security at every layer. If any validation step fails, the system **refuses to proceed** (fail-closed).
 
 | Layer | Mechanism | Implementation | What It Prevents |
 |-------|-----------|---------------|-----------------|
@@ -501,6 +501,6 @@ This project was built for the Multi-Agent Autonomy Hackathon (PS3 Track).
 
 **Built with a focus on autonomy, reliability, and full observability.**
 
-ANVIL — Because vulnerabilities should not wait for humans.
+AEGIS — Because vulnerabilities should not wait for humans.
 
 </div>
