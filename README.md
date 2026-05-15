@@ -1,8 +1,7 @@
-<div align="center">
 
-# ANVIL
+# AEGIS
 
-### Autonomous Vulnerability Neutralization & Intelligence Layer
+### Autonomous Exploit Generation & Intelligence Security
 
 An autonomous, fail-closed red-team engine that discovers, exploits, verifies, and patches security vulnerabilities — then opens a Pull Request with the fix — all with zero human intervention and full end-to-end observability.
 
@@ -58,7 +57,7 @@ These problems are not hypothetical. They are the primary reasons security teams
 
 ## The Solution
 
-ANVIL eliminates all three failure modes through a mathematically grounded architecture:
+AEGIS eliminates all three failure modes through a mathematically grounded architecture:
 
 - **A Colored Petri Net (CPN) execution engine** replaces free-form agent chaining with deterministic, graph-based orchestration. The LLM is never consulted for routing decisions — pure Python `if/else` logic governs all state transitions.
 - **A dedicated Verifier Agent** (zero LLM dependency) acts as a cryptographic checkpoint: exploit output must contain deterministic proof markers (`FLAG{...}` or `EXPLOIT_SUCCESS`) before the pipeline advances. This is the anti-hallucination gate.
@@ -70,72 +69,9 @@ The result: a system that autonomously clones a GitHub repository, scans its sou
 
 ## System Architecture
 
-```mermaid
-flowchart TB
-    subgraph Frontend["Frontend — React + Vite (port 5173)"]
-        UI["Web Dashboard"]
-        SSE["SSE Client<br/>Real-time streaming"]
-        PETRI["Petri Net Visualizer"]
-        DIFF["Diff Viewer"]
-        TERM["Live Terminal"]
-    end
 
-    subgraph Auth["GitHub OAuth 2.0"]
-        OAUTH["OAuth Authorization"]
-        CB["Token Exchange<br/>/api/auth/callback"]
-        COOKIE["Signed HttpOnly Cookie<br/>(itsdangerous)"]
-    end
+<img width="1600" height="1064" alt="image" src="https://github.com/user-attachments/assets/ca0dac52-c9d6-4161-a55b-10bde5a4be78" />
 
-    subgraph Backend["Backend — FastAPI (port 8000)"]
-        API["REST API Layer<br/>/api/scan, /api/auth/*"]
-        PIPE["Pipeline Runner<br/>asyncio.to_thread"]
-        CPN["CPN Engine<br/>10 Places, 5 Transitions"]
-
-        subgraph Agents["Multi-Agent System"]
-            RECON["Recon Agent<br/>(GPT-4o + Source Analysis)"]
-            EXPLOIT["Exploit Agent<br/>(GPT-4o + AST Sandbox)"]
-            VERIFY["Verifier Agent<br/>(Deterministic, NO LLM)"]
-            PATCH["Patcher Agent<br/>(GPT-4o + GitHub API)"]
-        end
-    end
-
-    subgraph Infra["Infrastructure"]
-        REDIS["Redis<br/>SSE Event Queue"]
-        SQLITE["SQLite WAL<br/>State Checkpoints"]
-        OMIUM["Omium SDK<br/>OTLP gRPC Traces"]
-    end
-
-    subgraph External["External Services"]
-        GH_API["GitHub REST API<br/>Clone, Branch, PR"]
-        OPENAI["OpenAI API<br/>GPT-4o"]
-        OTEL["Omium Cloud<br/>Trace Dashboard"]
-    end
-
-    UI --> SSE
-    UI --> PETRI
-    UI --> DIFF
-    UI --> TERM
-    UI -->|"POST /api/scan"| API
-    UI -->|"GET /api/scan/{id}/stream"| SSE
-
-    OAUTH --> CB --> COOKIE
-    COOKIE --> API
-
-    API -->|"asyncio.to_thread"| PIPE
-    PIPE --> CPN
-    CPN --> RECON --> EXPLOIT --> VERIFY --> PATCH
-    VERIFY -->|"retry <= 3"| EXPLOIT
-    PIPE -->|"SSE events"| REDIS --> SSE
-
-    CPN -->|"checkpoint after<br/>every transition"| SQLITE
-    CPN --> OMIUM
-
-    RECON --> OPENAI
-    EXPLOIT --> OPENAI
-    PATCH --> OPENAI
-    PATCH --> GH_API
-    OMIUM --> OTEL
-```
 
 ---
 
@@ -143,7 +79,7 @@ flowchart TB
 
 ### Production-Grade Observability (Omium SDK + W3C Trace Context)
 
-ANVIL does not operate as a black box. Every pipeline execution emits structured OpenTelemetry spans with rich attributes — `cpn.transition`, `cpn.step`, `cpn.retry_count`, `llm.prompt_tokens`, `sandbox.stdout_length`, `verification.result`, and `patch.confidence`. The Omium SDK exports traces via OTLP gRPC to `ingest.monium.yandex.cloud:443`.
+AEGIS does not operate as a black box. Every pipeline execution emits structured OpenTelemetry spans with rich attributes — `cpn.transition`, `cpn.step`, `cpn.retry_count`, `llm.prompt_tokens`, `sandbox.stdout_length`, `verification.result`, and `patch.confidence`. The Omium SDK exports traces via OTLP gRPC to `ingest.monium.yandex.cloud:443`.
 
 Critically, **W3C Trace Context is propagated across asynchronous boundaries** (from the FastAPI request handler into `asyncio.to_thread` and through the CPN engine), ensuring the entire multi-agent pipeline — from the initial HTTP request to the final GitHub PR — appears as a single, connected distributed trace. This is not bolted-on logging; it is first-class, standards-compliant observability.
 
@@ -162,7 +98,7 @@ Unlike agent frameworks that use LLMs for routing (introducing non-determinism a
 
 ### Real-World Integration, Not Mock Services
 
-ANVIL operates against real APIs:
+AEGIS operates against real APIs:
 - **GitHub REST API** via PyGithub — clone repos, create branches, push commits, open Pull Requests using the authenticated user's OAuth token
 - **GitHub OAuth 2.0** — full authorization code flow with signed HttpOnly cookies
 - **OpenAI GPT-4o** — structured JSON output with Pydantic validation for all agent responses
@@ -274,7 +210,7 @@ Each event payload:
 
 This section maps ANVIL's architecture directly to the hackathon evaluation rubric to demonstrate maximum alignment with each scoring criterion.
 
-| Criterion | How ANVIL Addresses It |
+| Criterion | How AEGIS Addresses It |
 |-----------|----------------------|
 | **Autonomy** | The entire pipeline — from repository cloning through vulnerability discovery, exploitation, verification, patching, and Pull Request creation — executes without any human intervention. The user provides a repo URL; ANVIL delivers a fix PR. Zero manual steps. |
 | **Observability** | Every CPN transition, LLM call, sandbox execution, and verification decision emits structured OpenTelemetry spans via the Omium SDK. W3C Trace Context propagation across async boundaries produces a single connected trace for the full pipeline. This is not logging — it is production-grade distributed tracing. |
@@ -374,7 +310,7 @@ anvil/
 
 ## Fail-Closed Safety Mechanisms
 
-ANVIL enforces security at every layer. If any validation step fails, the system **refuses to proceed** (fail-closed).
+AEGIS enforces security at every layer. If any validation step fails, the system **refuses to proceed** (fail-closed).
 
 | Layer | Mechanism | Implementation | What It Prevents |
 |-------|-----------|---------------|-----------------|
@@ -565,6 +501,6 @@ This project was built for the Multi-Agent Autonomy Hackathon (PS3 Track).
 
 **Built with a focus on autonomy, reliability, and full observability.**
 
-ANVIL — Because vulnerabilities should not wait for humans.
+AEGIS — Because vulnerabilities should not wait for humans.
 
 </div>
