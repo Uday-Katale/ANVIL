@@ -14,7 +14,7 @@ export default function ScanComplete({ result, scanId, onReset }) {
   const confidence = result.patch?.confidence_score != null
     ? Math.round(result.patch.confidence_score * 100) : null;
 
-  const omiumUrl = `https://monium.yandex.cloud/traces?service=red-team-engine&scan_id=${scanId}`;
+  const omiumUrl = 'https://app.omium.ai/overview';
 
   return (
     <div className={styles.card}>

@@ -33,7 +33,7 @@ SANDBOX_MAX_RETRIES: int = int(os.getenv("SANDBOX_MAX_RETRIES", "3"))
 OMIUM_API_KEY: str = os.getenv("OMIUM_API_KEY", "")
 OMIUM_ENDPOINT: str = os.getenv(
     "OMIUM_ENDPOINT",
-    "ingest.monium.yandex.cloud:443",
+    "https://api.omium.ai",
 )
 SERVICE_NAME: str = os.getenv("SERVICE_NAME", "red-team-engine")
 

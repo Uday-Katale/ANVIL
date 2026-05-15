@@ -55,7 +55,7 @@ export default function App() {
               </div>
               <h2 className={styles.dashTitle}>Autonomous Red-Team Engine</h2>
               <p className={styles.dashSub}>
-                Connect GitHub, submit a repo, and watch ANVIL autonomously
+                Connect GitHub, submit a repo, and watch AEGIS autonomously
                 clone, exploit, verify, and patch — zero human intervention
               </p>
             </div>

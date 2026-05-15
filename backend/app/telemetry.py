@@ -147,18 +147,24 @@ def omium_traced(name: str = None, span_type: str = "function", **kwargs):
     function traces to the Omium dashboard.
 
     Falls back to a no-op if Omium isn't installed or not initialized.
+    
+    NOTE: Initialization check is deferred to call-time so that decorators
+    applied at import-time (before init_telemetry()) still work.
     """
     def decorator(func: Callable) -> Callable:
-        if _OMIUM_PKG_AVAILABLE and _omium_initialized and omium_trace_decorator is not None:
-            try:
-                return omium_trace_decorator(
-                    name=name or func.__name__,
-                    span_type=span_type,
-                    **kwargs
-                )(func)
-            except Exception as exc:
-                logger.debug("omium_traced decoration failed for %s: %s", func.__name__, exc)
-        return func
+        @functools.wraps(func)
+        def wrapper(*args, **kw):
+            if _omium_initialized and omium_trace_decorator is not None:
+                try:
+                    traced_fn = omium_trace_decorator(
+                        name=name or func.__name__,
+                        span_type=span_type,
+                    )(func)
+                    return traced_fn(*args, **kw)
+                except Exception as exc:
+                    logger.debug("omium_traced call failed for %s: %s", func.__name__, exc)
+            return func(*args, **kw)
+        return wrapper
     return decorator
 
 
@@ -166,14 +172,20 @@ def omium_checkpointed(name: str = None, **kwargs):
     """
     Decorator that uses the official Omium @checkpoint decorator.
     Falls back to a no-op if Omium isn't installed or not initialized.
+    
+    NOTE: Initialization check is deferred to call-time.
     """
     def decorator(func: Callable) -> Callable:
-        if _OMIUM_PKG_AVAILABLE and _omium_initialized and omium_checkpoint_decorator is not None:
-            try:
-                return omium_checkpoint_decorator(name=name, **kwargs)(func)
-            except Exception as exc:
-                logger.debug("omium_checkpointed decoration failed for %s: %s", func.__name__, exc)
-        return func
+        @functools.wraps(func)
+        def wrapper(*args, **kw):
+            if _omium_initialized and omium_checkpoint_decorator is not None:
+                try:
+                    checkpointed_fn = omium_checkpoint_decorator(name=name, **kwargs)(func)
+                    return checkpointed_fn(*args, **kw)
+                except Exception as exc:
+                    logger.debug("omium_checkpointed call failed for %s: %s", func.__name__, exc)
+            return func(*args, **kw)
+        return wrapper
     return decorator
 
 
