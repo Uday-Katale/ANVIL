@@ -125,6 +125,7 @@ def _static_patch_validation(
     original_code: str,
     fixed_code: str,
     exploit_payload: str,
+    target_file: str = None,
     span=None,
 ) -> tuple[bool, str]:
     """
@@ -133,22 +134,28 @@ def _static_patch_validation(
 
     Checks that the patch:
       1. Actually changed the code (non-empty diff).
-      2. Introduces at least one security-relevant pattern.
-      3. Does not reintroduce obvious unsafe patterns from the original.
+      2. For Python files: validates syntax via AST.
+      3. Introduces at least one security-relevant pattern.
+      4. Does not reintroduce obvious unsafe patterns from the original.
 
     Returns (passed: bool, reason: str).
     """
-    import ast
-
     # 1. Must have changed something
     if fixed_code.strip() == original_code.strip():
         return False, "Patch produced no changes to the source code."
 
-    # 2. Must parse as valid Python
-    try:
-        ast.parse(fixed_code)
-    except SyntaxError as exc:
-        return False, f"Patched code has a syntax error: {exc}"
+    # 2. Syntax check — only for Python files
+    is_python = True
+    if target_file:
+        ext = Path(target_file).suffix.lower()
+        is_python = ext in (".py", ".pyw")
+
+    if is_python:
+        import ast
+        try:
+            ast.parse(fixed_code)
+        except SyntaxError as exc:
+            return False, f"Patched code has a syntax error: {exc}"
 
     # 3. Look for known unsafe patterns that should have been removed.
     #    These are heuristics covering the most common vulnerability classes.
@@ -174,6 +181,11 @@ def _static_patch_validation(
         "shlex.quote", "shlex.split",
         "sanitize", "validate", "allowlist", "whitelist",
         "secure_filename",
+        # JS/TS safe patterns
+        "path.resolve", "path.normalize", "path.join",
+        "encodeURIComponent", "escapeHtml", "sanitizeHtml",
+        "parameterize", "prepared", "placeholder",
+        "DOMPurify", "helmet", "csurf", "express-validator",
     ]
 
     fixed_lower = fixed_code.lower()
@@ -190,8 +202,8 @@ def _static_patch_validation(
 
     logger.info(
         "Static patch validation: %d lines added, %d lines removed, "
-        "safe_pattern_found=%s",
-        len(added), len(removed), has_safe_pattern,
+        "safe_pattern_found=%s, is_python=%s",
+        len(added), len(removed), has_safe_pattern, is_python,
     )
 
     if span:
@@ -199,6 +211,7 @@ def _static_patch_validation(
         span.set_attribute("regression.lines_added", len(added))
         span.set_attribute("regression.lines_removed", len(removed))
         span.set_attribute("regression.has_safe_pattern", has_safe_pattern)
+        span.set_attribute("regression.is_python", is_python)
 
     return True, (
         f"Static validation passed: {len(added)} lines added, "
@@ -328,6 +341,7 @@ def run_patch_github(
             original_code=original_code,
             fixed_code=fixed_code,
             exploit_payload=exploit.exploit_payload_used,
+            target_file=target_file,
             span=span,
         )
 
