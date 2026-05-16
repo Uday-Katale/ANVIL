@@ -352,6 +352,53 @@ def cleanup_scan_dir(scan_id: str) -> None:
 
 # ── GitHub API: branches + PRs ───────────────────────────────────────────────
 
+def _has_push_access(repo) -> bool:
+    """Check if the authenticated user has push access to the repo."""
+    try:
+        perms = repo.permissions
+        return perms and (perms.push or perms.admin)
+    except Exception:
+        return False
+
+
+def _get_or_create_fork(g: Github, upstream_repo, max_wait: int = 30):
+    """
+    Fork the upstream repo into the authenticated user's account.
+    If a fork already exists, return it. Waits briefly for GitHub to
+    finish creating the fork (async on GitHub's side).
+    """
+    import time
+
+    user = g.get_user()
+    fork_full_name = f"{user.login}/{upstream_repo.name}"
+
+    # Check if we already have a fork
+    try:
+        existing = g.get_repo(fork_full_name)
+        if existing.fork:
+            logger.info("Reusing existing fork: %s", fork_full_name)
+            return existing
+    except Exception:
+        pass  # No existing fork, create one
+
+    logger.info("Forking %s into %s...", upstream_repo.full_name, user.login)
+    fork = user.create_fork(upstream_repo)
+
+    # GitHub forks are async — poll until the fork is ready
+    for _ in range(max_wait):
+        try:
+            fresh = g.get_repo(fork.full_name)
+            # Fork is ready when we can read the default branch ref
+            fresh.get_git_ref(f"heads/{upstream_repo.default_branch}")
+            logger.info("Fork ready: %s", fresh.full_name)
+            return fresh
+        except Exception:
+            time.sleep(1)
+
+    # Return the fork object anyway; it may work by the time we push
+    return fork
+
+
 def create_branch_and_pr(
     *,
     # Accept both naming conventions for backward compatibility
@@ -367,13 +414,17 @@ def create_branch_and_pr(
     new_content: str = None,
     # Multi-file mode (from patcher)
     fixed_files: list = None,
-    commit_message: str = "fix: automated security patch by ANVIL",
+    commit_message: str = "fix: automated security patch by A.E.G.I.S.",
     pr_title: str = "Security Fix",
     pr_body: str = "",
 ) -> str:
     """
     Create a fix branch, commit the patched file(s), and open a Pull Request.
     Returns the URL of the created PR.
+
+    If the authenticated user does NOT have push access to the target repo,
+    the function automatically forks the repo and opens a cross-repo PR
+    (fork → upstream), which is the standard GitHub contribution model.
     """
     # Resolve parameter aliases
     _token = github_token or token
@@ -392,16 +443,30 @@ def create_branch_and_pr(
         raise ValueError("repo_url or repo_full_name is required")
 
     g = Github(_token)
-    repo = g.get_repo(full_name)
+    upstream_repo = g.get_repo(full_name)
 
-    # Get the SHA of the base branch head
-    base_ref = repo.get_git_ref(f"heads/{base_branch}")
+    # Determine if we need to fork
+    use_fork = not _has_push_access(upstream_repo)
+
+    if use_fork:
+        logger.info(
+            "No push access to %s — will fork and open cross-repo PR",
+            full_name,
+        )
+        push_repo = _get_or_create_fork(g, upstream_repo)
+        fork_owner = push_repo.owner.login
+    else:
+        push_repo = upstream_repo
+        fork_owner = None
+
+    # Get the SHA of the base branch head (from upstream)
+    base_ref = upstream_repo.get_git_ref(f"heads/{base_branch}")
     base_sha = base_ref.object.sha
 
-    # Create the new branch
+    # Create the new branch on the push target (fork or upstream)
     try:
-        repo.create_git_ref(ref=f"refs/heads/{_branch}", sha=base_sha)
-        logger.info("Created branch: %s", _branch)
+        push_repo.create_git_ref(ref=f"refs/heads/{_branch}", sha=base_sha)
+        logger.info("Created branch: %s on %s", _branch, push_repo.full_name)
     except Exception as exc:
         if "Reference already exists" in str(exc):
             logger.warning("Branch %s already exists, reusing", _branch)
@@ -417,13 +482,13 @@ def create_branch_and_pr(
     else:
         raise ValueError("Either fixed_files or (file_path + new_content) is required")
 
-    # Commit each file
+    # Commit each file to the push target
     for f in files_to_commit:
         fpath = f["path"]
         fcontent = f["content"]
         try:
-            contents = repo.get_contents(fpath, ref=_branch)
-            repo.update_file(
+            contents = push_repo.get_contents(fpath, ref=_branch)
+            push_repo.update_file(
                 path=fpath,
                 message=commit_message,
                 content=fcontent,
@@ -431,7 +496,7 @@ def create_branch_and_pr(
                 branch=_branch,
             )
         except Exception:
-            repo.create_file(
+            push_repo.create_file(
                 path=fpath,
                 message=commit_message,
                 content=fcontent,
@@ -439,11 +504,14 @@ def create_branch_and_pr(
             )
         logger.info("Committed fix to %s on branch %s", fpath, _branch)
 
-    # Open the PR
-    pr = repo.create_pull(
+    # Open the PR on the UPSTREAM repo
+    # For cross-repo PRs, head must be "fork_owner:branch"
+    head_ref = f"{fork_owner}:{_branch}" if use_fork else _branch
+
+    pr = upstream_repo.create_pull(
         title=pr_title,
         body=pr_body,
-        head=_branch,
+        head=head_ref,
         base=base_branch,
     )
     logger.info("PR created: %s", pr.html_url)
