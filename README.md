@@ -1,4 +1,6 @@
 
+<div align="center">
+
 # A.E.G.I.S.
 
 ### Autonomous Exploit Generation and Intelligent Security
@@ -7,7 +9,7 @@ An autonomous, fail-closed red-team engine that discovers, exploits, verifies, a
 
 ---
 
-[Live Demo](#) | [Demo Video](#) | [Architecture](#system-architecture) | [Getting Started](#getting-started) | [How It Works](#how-it-works)
+[🌐 Live Demo](https://aegis-frontend-azure.vercel.app) | [🏗️ Architecture](#system-architecture) | [🚀 Getting Started](#getting-started) | [⚙️ How It Works](#how-it-works) | [📚 Research](#research--inspiration)
 
 ---
 
@@ -17,6 +19,7 @@ An autonomous, fail-closed red-team engine that discovers, exploits, verifies, a
 
 - [Problem Statement](#problem-statement)
 - [The Solution](#the-solution)
+- [🌟 Powered by Omium AI](#-powered-by-omium-ai)
 - [System Architecture](#system-architecture)
 - [Key Differentiators](#key-differentiators)
 - [How It Works](#how-it-works)
@@ -24,6 +27,7 @@ An autonomous, fail-closed red-team engine that discovers, exploits, verifies, a
   - [Colored Petri Net (CPN) Execution Model](#colored-petri-net-cpn-execution-model)
   - [Agent Breakdown](#agent-breakdown)
   - [SSE Event Lifecycle](#sse-event-lifecycle)
+- [Research & Inspiration](#research--inspiration)
 - [Evaluation Criteria Alignment](#evaluation-criteria-alignment)
 - [Technical Stack](#technical-stack)
 - [Project Structure](#project-structure)
@@ -39,6 +43,7 @@ An autonomous, fail-closed red-team engine that discovers, exploits, verifies, a
 - [Observability and Tracing](#observability-and-tracing)
 - [Data Contracts](#data-contracts)
 - [Future Scope and Scalability](#future-scope-and-scalability)
+- [Contributors](#contributors)
 - [License](#license)
 
 ---
@@ -64,6 +69,18 @@ A.E.G.I.S. eliminates all three failure modes through a mathematically grounded 
 - **Full W3C Trace Context propagation** via the Omium SDK across every asynchronous boundary (FastAPI to background threads), producing a single connected distributed trace for the entire pipeline. Every decision, every token, every sandbox execution is auditable.
 
 The result: a system that autonomously clones a GitHub repository, scans its source code, generates and executes exploit payloads in a sandboxed environment, deterministically verifies exploitation, generates a security patch, and opens a Pull Request — all visible in real-time through Server-Sent Events streamed to a production-quality web dashboard.
+
+---
+
+## 🌟 Powered by Omium AI
+
+A.E.G.I.S. is deeply integrated with the **Omium SDK**, which was an absolute game-changer for building this project quickly and reliably. Developing a multi-agent orchestration engine with strict execution gates is notoriously difficult to debug. **Omium AI** transformed our development experience by:
+
+- **Uncovering Hidden Bugs:** We used Omium to trace execution paths across background threads and asynchronous boundaries. When our orchestration engine initially suffered from race conditions or infinite retry loops, Omium's distributed tracing instantly pinpointed the failing transitions, saving us hours of manual debugging.
+- **Auditing LLM Decisions:** By attaching structured attributes (`llm.prompt_tokens`, `agent.decision_rationale`) to Omium spans, we could visualize exactly *why* our agents failed on specific payload generations, allowing us to rapidly iterate on prompt engineering.
+- **Monitoring Pipeline Failures:** Omium helped us identify race conditions between our SSE real-time streaming and background SQLite checkpoints. The end-to-end observability made the invisible visible.
+
+Without Omium, tracking the state of an autonomous red-team agent across a FastAPI backend, background workers, and sandboxed subprocesses would have been a massive black box. **Omium is the observability backbone of A.E.G.I.S.**
 
 ---
 
@@ -373,6 +390,8 @@ SESSION_SECRET=run: python -c "import secrets; print(secrets.token_hex(32))"
 
 All other values (Redis URL, SQLite path, Omium endpoint) have sensible defaults.
 
+> **Tip:** Generate a secure session secret with: `python -c "import secrets; print(secrets.token_hex(32))"`
+
 ---
 
 ### Step 2 — Start Redis
@@ -394,6 +413,12 @@ redis-cli ping    # Expected output: PONG
 
 ```bash
 cd backend
+python -m venv .venv
+
+# Activate the virtual environment
+# macOS/Linux:  source .venv/bin/activate
+# Windows:      .venv\Scripts\activate
+
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -498,6 +523,45 @@ A.E.G.I.S. was designed as a production-capable foundation, not a hackathon prot
 | **Role-Based Access Control** | Extend OAuth to support team-based access with repository-level permissions |
 | **Custom Policy Engine** | Allow teams to define which vulnerability classes trigger auto-patching vs. manual review |
 | **Container-Based Sandbox** | Upgrade from AST-validated subprocess to gVisor or Firecracker micro-VMs for stronger isolation |
+
+---
+
+## Research & Inspiration
+
+A.E.G.I.S. draws on ideas from several areas of academic and industry research. Below are the key works that influenced our architecture and design decisions.
+
+### Colored Petri Nets for Multi-Agent Orchestration
+
+| Reference | Relevance to A.E.G.I.S. |
+|-----------|------------------------|
+| **K. Jensen & L.M. Kristensen**, *Coloured Petri Nets: Modelling and Validation of Concurrent Systems*, Springer, 2009. | The foundational text on CPN theory. Our CPN engine directly implements the coloured token model described here — using a `MasterState` Pydantic object as the token flowing through a bipartite place-transition graph. |
+| **Hübner et al.**, *"Using Coloured Petri Nets for Testing Multi-Agent Systems"*, MDPI, 2020. | Introduced the CPN4M framework for mapping organizational agent specifications (Moise+) to CPN models. Inspired our approach of encoding all routing decisions as Python guard conditions rather than LLM-driven routing. |
+| **Marzougui et al.**, *"Colored Petri Nets Based Modeling and Simulation of Multi-Agent Systems"*, AIRCC, 2014. | Demonstrated the use of Hierarchical CPNs for modeling individual agent behaviors and composing them into verifiable system models — directly relevant to our 10-place, 5-transition CPN design. |
+
+### Autonomous Vulnerability Detection & Red-Teaming
+
+| Reference | Relevance to A.E.G.I.S. |
+|-----------|------------------------|
+| **Fang et al.**, *"Teams of LLM Agents can Exploit Zero-Day Vulnerabilities"* (HPTSA), arXiv, 2024. | Demonstrated that hierarchical planning with specialized sub-agents (exploration, exploitation, triage) outperforms monolithic agent architectures. This directly influenced our four-agent pipeline design (Recon → Exploit → Verify → Patch). |
+| **Deng et al.**, *"PentestGPT: An LLM-empowered Automatic Penetration Testing Tool"*, USENIX Security, 2024. | Highlighted the limitations of single-agent penetration testing and the need for structured task decomposition — a gap we address with our CPN-based orchestration. |
+| **Gioacchini et al.**, *"AutoPenBench: Benchmarking Generative Agents for Penetration Testing"*, arXiv, 2024. | Established benchmarks for evaluating autonomous penetration testing agents. Validated our design choice of deterministic verification gates to prevent LLM hallucination in security-critical pipelines. |
+| **DARPA AI Cyber Challenge (AIxCC)**, 2024–2025. | The first large-scale competition for autonomous AI cyber-defense systems. Reinforced the importance of fail-closed architectures and the need for cryptographic proof of exploitation before patching — core tenets of A.E.G.I.S. |
+
+### Observability & Distributed Tracing
+
+| Reference | Relevance to A.E.G.I.S. |
+|-----------|------------------------|
+| **W3C Trace Context Specification**, W3C Recommendation, 2021. | The standard we implement for propagating trace context (`traceparent` header) across async boundaries, enabling the entire pipeline to appear as a single connected trace. |
+| **OpenTelemetry Specification**, CNCF, 2023. | Our telemetry layer uses the OTLP gRPC protocol and structured span attributes, following OpenTelemetry semantic conventions for LLM and agent operations. |
+
+---
+
+## Contributors
+
+- [Aniket Krishna Ingale](https://github.com/DevOpsDreamer)
+- [Sumeet Ravindra Gite](https://github.com/Sumeet2386)
+- [Harshal Andhale](https://github.com/HarshalAndhale9657)
+- [Ansh Jaiswal](https://github.com/Ansh-1019)
 
 ---
 
