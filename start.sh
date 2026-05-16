@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# ANVIL — localhost launcher (no Docker)
+# A.E.G.I.S. — localhost launcher (no Docker)
 #
 # Usage:  ./start.sh
 #
@@ -88,7 +88,7 @@ echo "    Frontend PID: $FRONTEND_PID"
 
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  ANVIL is running!"
+echo "  A.E.G.I.S. is running!"
 echo "  Frontend  →  http://localhost:5173"
 echo "  Backend   →  http://localhost:8000/docs"
 echo "  Press Ctrl-C to stop all services."

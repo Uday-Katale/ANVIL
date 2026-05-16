@@ -1,10 +1,10 @@
 /**
- * ANVIL API Client
+ * A.E.G.I.S. API Client
  * All communication with the FastAPI backend lives here.
  * The Vite proxy forwards /api → http://localhost:8000/api
  */
 
-const BASE = ''; // relative — Vite proxy handles it
+const BASE = import.meta.env.VITE_API_URL || ''; // relative — Vite proxy handles it locally
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 

@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
 from app.auth import router as auth_router
+from app.config import FRONTEND_URL
 from app.telemetry import init_telemetry
 
 logging.basicConfig(
@@ -41,6 +42,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:8000",
+        FRONTEND_URL,
     ],
     allow_credentials=True,
     allow_methods=["*"],

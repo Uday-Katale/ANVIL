@@ -49,7 +49,7 @@ export default function GitHubConnect({ user, loading, onLogin, onLogout }) {
         </div>
         <div className={styles.noticeText}>
           <strong>GitHub Authentication Required</strong>
-          <span>AEGIS needs repo access to clone, scan, and open a Pull Request with the fix.</span>
+          <span>A.E.G.I.S. needs repo access to clone, scan, and open a Pull Request with the fix.</span>
         </div>
       </div>
       <button className={styles.connectBtn} onClick={onLogin}>

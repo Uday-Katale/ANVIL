@@ -1,7 +1,7 @@
 
-# AEGIS
+# A.E.G.I.S.
 
-### Autonomous Exploit Generation & Intelligence Security
+### Autonomous Exploit Generation and Intelligent Security
 
 An autonomous, fail-closed red-team engine that discovers, exploits, verifies, and patches security vulnerabilities — then opens a Pull Request with the fix — all with zero human intervention and full end-to-end observability.
 
@@ -57,7 +57,7 @@ These problems are not hypothetical. They are the primary reasons security teams
 
 ## The Solution
 
-AEGIS eliminates all three failure modes through a mathematically grounded architecture:
+A.E.G.I.S. eliminates all three failure modes through a mathematically grounded architecture:
 
 - **A Colored Petri Net (CPN) execution engine** replaces free-form agent chaining with deterministic, graph-based orchestration. The LLM is never consulted for routing decisions — pure Python `if/else` logic governs all state transitions.
 - **A dedicated Verifier Agent** (zero LLM dependency) acts as a cryptographic checkpoint: exploit output must contain deterministic proof markers (`FLAG{...}` or `EXPLOIT_SUCCESS`) before the pipeline advances. This is the anti-hallucination gate.
@@ -69,9 +69,7 @@ The result: a system that autonomously clones a GitHub repository, scans its sou
 
 ## System Architecture
 
-
 <img width="1600" height="1064" alt="image" src="https://github.com/user-attachments/assets/ca0dac52-c9d6-4161-a55b-10bde5a4be78" />
-
 
 ---
 
@@ -79,7 +77,7 @@ The result: a system that autonomously clones a GitHub repository, scans its sou
 
 ### Production-Grade Observability (Omium SDK + W3C Trace Context)
 
-AEGIS does not operate as a black box. Every pipeline execution emits structured OpenTelemetry spans with rich attributes — `cpn.transition`, `cpn.step`, `cpn.retry_count`, `llm.prompt_tokens`, `sandbox.stdout_length`, `verification.result`, and `patch.confidence`. The Omium SDK exports traces via OTLP gRPC to `ingest.monium.yandex.cloud:443`.
+A.E.G.I.S. does not operate as a black box. Every pipeline execution emits structured OpenTelemetry spans with rich attributes — `cpn.transition`, `cpn.step`, `cpn.retry_count`, `llm.prompt_tokens`, `sandbox.stdout_length`, `verification.result`, and `patch.confidence`. The Omium SDK exports traces via OTLP gRPC to `ingest.monium.yandex.cloud:443`.
 
 Critically, **W3C Trace Context is propagated across asynchronous boundaries** (from the FastAPI request handler into `asyncio.to_thread` and through the CPN engine), ensuring the entire multi-agent pipeline — from the initial HTTP request to the final GitHub PR — appears as a single, connected distributed trace. This is not bolted-on logging; it is first-class, standards-compliant observability.
 
@@ -94,11 +92,11 @@ If any check fails, the pipeline retries the exploit (up to 3 attempts) or halts
 
 ### Deterministic Graph Routing via Colored Petri Net
 
-Unlike agent frameworks that use LLMs for routing (introducing non-determinism at the orchestration layer), ANVIL uses a formal Colored Petri Net with 10 places and 5 transitions. All routing decisions are encoded as Python guard conditions. The LLM is confined to its designated role — generating analysis, payloads, and patches — never deciding what happens next.
+Unlike agent frameworks that use LLMs for routing (introducing non-determinism at the orchestration layer), A.E.G.I.S. uses a formal Colored Petri Net with 10 places and 5 transitions. All routing decisions are encoded as Python guard conditions. The LLM is confined to its designated role — generating analysis, payloads, and patches — never deciding what happens next.
 
 ### Real-World Integration, Not Mock Services
 
-AEGIS operates against real APIs:
+A.E.G.I.S. operates against real APIs:
 - **GitHub REST API** via PyGithub — clone repos, create branches, push commits, open Pull Requests using the authenticated user's OAuth token
 - **GitHub OAuth 2.0** — full authorization code flow with signed HttpOnly cookies
 - **OpenAI GPT-4o** — structured JSON output with Pydantic validation for all agent responses
@@ -220,14 +218,14 @@ Each event payload:
 
 ## Evaluation Criteria Alignment
 
-This section maps AEGIS's architecture directly to the hackathon evaluation rubric to demonstrate maximum alignment with each scoring criterion.
+This section maps A.E.G.I.S.'s architecture directly to the hackathon evaluation rubric to demonstrate maximum alignment with each scoring criterion.
 
-| Criterion | How AEGIS Addresses It |
+| Criterion | How A.E.G.I.S. Addresses It |
 |-----------|----------------------|
-| **Autonomy** | The entire pipeline — from repository cloning through vulnerability discovery, exploitation, verification, patching, and Pull Request creation — executes without any human intervention. The user provides a repo URL; ANVIL delivers a fix PR. Zero manual steps. |
+| **Autonomy** | The entire pipeline — from repository cloning through vulnerability discovery, exploitation, verification, patching, and Pull Request creation — executes without any human intervention. The user provides a repo URL; A.E.G.I.S. delivers a fix PR. Zero manual steps. |
 | **Observability** | Every CPN transition, LLM call, sandbox execution, and verification decision emits structured OpenTelemetry spans via the Omium SDK. W3C Trace Context propagation across async boundaries produces a single connected trace for the full pipeline. This is not logging — it is production-grade distributed tracing. |
 | **Reliability** | The fail-closed architecture prevents runaway execution: AST-validated sandbox blocks dangerous code before execution; deterministic Verifier rejects hallucinated results; SHA-256 circuit breaker prevents identical payload retries; 3-retry cap prevents death spirals; 20-step CPN limit prevents infinite traversal; SQLite WAL checkpointing after every transition enables crash recovery. |
-| **Real-World Integration** | Anvil operates against live GitHub repositories using the GitHub REST API (OAuth, clone, branch, commit, PR) and OpenAI GPT-4o. No mock services, no simulated APIs. |
+| **Real-World Integration** | A.E.G.I.S. operates against live GitHub repositories using the GitHub REST API (OAuth, clone, branch, commit, PR) and OpenAI GPT-4o. No mock services, no simulated APIs. |
 | **Technical Complexity** | Multi-agent CPN orchestration, AST-based code sandboxing, W3C trace propagation across async boundaries, real-time SSE streaming, signed cookie authentication, and strict Pydantic v2 inter-agent contracts — all integrated into a cohesive, production-quality system. |
 
 ---
@@ -322,7 +320,7 @@ anvil/
 
 ## Fail-Closed Safety Mechanisms
 
-AEGIS enforces security at every layer. If any validation step fails, the system **refuses to proceed** (fail-closed).
+A.E.G.I.S. enforces security at every layer. If any validation step fails, the system **refuses to proceed** (fail-closed).
 
 | Layer | Mechanism | Implementation | What It Prevents |
 |-------|-----------|---------------|-----------------|
@@ -447,7 +445,7 @@ chmod +x start.sh
 
 ## Observability and Tracing
 
-ANVIL exports distributed traces via the Omium SDK using the OTLP gRPC protocol. Every span includes structured attributes:
+A.E.G.I.S. exports distributed traces via the Omium SDK using the OTLP gRPC protocol. Every span includes structured attributes:
 
 | Span Category | Attributes |
 |--------------|------------|
@@ -488,11 +486,11 @@ All inter-agent communication is governed by strict Pydantic v2 schemas. No free
 
 ## Future Scope and Scalability
 
-ANVIL was designed as a production-capable foundation, not a hackathon prototype. The architecture supports the following V2 enhancements:
+A.E.G.I.S. was designed as a production-capable foundation, not a hackathon prototype. The architecture supports the following V2 enhancements:
 
 | Enhancement | Description |
 |------------|-------------|
-| **CI/CD Pipeline Integration** | Trigger scans automatically on push/PR events via GitHub Webhooks, integrating ANVIL into existing DevSecOps workflows |
+| **CI/CD Pipeline Integration** | Trigger scans automatically on push/PR events via GitHub Webhooks, integrating A.E.G.I.S. into existing DevSecOps workflows |
 | **Multi-Platform Support** | Extend GitHub integration to GitLab, Bitbucket, and Azure DevOps using a provider abstraction layer |
 | **Expanded Skill Repository** | Add detection modules for OWASP Top 10 categories beyond path traversal: SQL injection, XSS, SSRF, insecure deserialization |
 | **Parallel Multi-Vulnerability Scanning** | Fork the CPN into parallel sub-nets, one per vulnerability, enabling simultaneous exploitation and patching |
@@ -513,6 +511,6 @@ This project was built for the Multi-Agent Autonomy Hackathon (PS3 Track).
 
 **Built with a focus on autonomy, reliability, and full observability.**
 
-AEGIS — Because vulnerabilities should not wait for humans.
+A.E.G.I.S. — Because vulnerabilities should not wait for humans.
 
 </div>

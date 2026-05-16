@@ -43,7 +43,7 @@ export default function RepoInput({ onStartScan, disabled, disabledReason }) {
         <span className={styles.inputHint}>
           {disabled && disabledReason
             ? <span style={{color:'rgba(255,159,28,0.7)'}}>{disabledReason}</span>
-            : 'AEGIS will clone, scan, exploit and patch this repo'}
+            : 'A.E.G.I.S. will clone, scan, exploit and patch this repo'}
         </span>
       </div>
 

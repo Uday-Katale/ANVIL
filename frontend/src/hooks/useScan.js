@@ -97,7 +97,7 @@ export function useScan() {
     setRetryInfo(null);
     setPetriStage('idle');
 
-    addLog('▶ ANVIL v2.0.0 — Autonomous Vulnerability Neutralization & Intelligence Layer', 'system');
+    addLog('▶ A.E.G.I.S. v2.0.0 — Autonomous Exploit Generation and Intelligent Security', 'system');
     addLog(`▶ Omium trace initialized — W3C Trace Context propagation active`, 'system');
     addLog(`▶ Redis Streams connected. SQLite WAL checkpoint active.`, 'system');
     addLog(`⚡ [WEBHOOK] POST /api/scan — repo: ${url}`, 'event');
@@ -159,7 +159,7 @@ export function useScan() {
 
           // Terminal state on completion
           if (ev.stage === 'completed') {
-            addLog(`▶ ANVIL mission complete — fetching full result...`, 'finish');
+            addLog(`▶ A.E.G.I.S. mission complete — fetching full result...`, 'finish');
             try {
               const fullResult = await getScanResult(id);
               // Ensure repo_url is present in result for display

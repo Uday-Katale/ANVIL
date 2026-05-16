@@ -23,7 +23,7 @@ export default function NavBar({ user, onLogout }) {
             <polygon points="16,3 30,29 2,29" stroke="#00ff9d" strokeWidth="2.5" fill="none"/>
             <line x1="9" y1="21" x2="23" y2="21" stroke="#00ff9d" strokeWidth="2"/>
           </svg>
-          <span className={styles.logoText}>AEGIS</span>
+          <span className={styles.logoText}>A.E.G.I.S.</span>
           <span className={styles.logoBadge}>v1.0.0</span>
         </div>
 

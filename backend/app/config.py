@@ -58,3 +58,6 @@ SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-in-production-32byt
 
 # ── Scan Workspace ───────────────────────────────────────────────────────────
 SCAN_TEMP_DIR: str = os.getenv("SCAN_TEMP_DIR", str(Path(__file__).resolve().parent.parent / "scans"))
+
+# ── Web App URL ──────────────────────────────────────────────────────────────
+FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")

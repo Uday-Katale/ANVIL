@@ -10,9 +10,9 @@ export default function Footer() {
               <polygon points="16,3 30,29 2,29" stroke="#00ff9d" strokeWidth="2.5" fill="none"/>
               <line x1="9" y1="21" x2="23" y2="21" stroke="#00ff9d" strokeWidth="2"/>
             </svg>
-            <span>AEGIS</span>
+            <span>A.E.G.I.S.</span>
           </div>
-          <p className={styles.tagline}>Autonomous Vulnerability Neutralization & Intelligence Layer</p>
+          <p className={styles.tagline}>Autonomous Exploit Generation and Intelligent Security</p>
         </div>
 
 

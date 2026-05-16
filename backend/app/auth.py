@@ -23,6 +23,7 @@ from app.config import (
     GITHUB_CLIENT_ID,
     GITHUB_REDIRECT_URI,
     SESSION_SECRET,
+    FRONTEND_URL,
 )
 
 from app.github_service import (
@@ -113,7 +114,7 @@ async def github_login():
         value=_state_signer.dumps(state),
         max_age=_STATE_COOKIE_MAX_AGE,
         httponly=True,
-        samesite="lax",
+        samesite="none" if _COOKIE_SECURE else "lax",
         secure=_COOKIE_SECURE,
     )
 
@@ -176,7 +177,7 @@ async def github_callback(
     signed = _signer.dumps(token)
 
     response = RedirectResponse(
-        url="http://localhost:5173",
+        url=FRONTEND_URL,
         status_code=302
     )
 
@@ -185,7 +186,7 @@ async def github_callback(
         value=signed,
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
-        samesite="lax",
+        samesite="none" if _COOKIE_SECURE else "lax",
         secure=_COOKIE_SECURE,
     )
 
