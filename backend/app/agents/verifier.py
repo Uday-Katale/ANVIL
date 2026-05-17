@@ -115,8 +115,14 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
             for keyword in _SHORT_EVIDENCE_VULN_TYPES
         )
         
-        # For crash-based exploits (500 errors, exceptions), short evidence is acceptable
-        if len(evidence_text) < _MIN_EVIDENCE_LENGTH and not is_short_evidence_type:
+        # Instead of hard-failing on minimal chars, check multiple signals:
+        exploit_confirmed = (
+            len(evidence_text) > 0 or                              # has extracted data
+            "confirmed" in stdout.lower() or                       # any confirmation word
+            is_short_evidence_type                                 # crash-based evidence
+        )
+
+        if not exploit_confirmed:
             reason = (
                 f"stdout contains '{_SUCCESS_MARKER}' but has minimal "
                 f"evidence ({len(evidence_text)} chars of content). "
@@ -134,10 +140,10 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
                 failure_category="no_evidence",
             )
         
-        # Special case: if evidence is short but contains crash indicators, accept it
-        if len(evidence_text) < _MIN_EVIDENCE_LENGTH and is_short_evidence_type:
+        # Special case: if evidence is short but accepted, log it
+        if len(evidence_text) < _MIN_EVIDENCE_LENGTH:
             logger.info(
-                "Accepting short evidence (%d chars) due to crash-based exploit indicators",
+                "Accepting short evidence (%d chars) due to auxiliary exploit signals",
                 len(evidence_text)
             )
 

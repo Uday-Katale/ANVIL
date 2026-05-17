@@ -310,6 +310,8 @@ def detect_entry_point(repo_dir: str) -> Optional[str]:
         rel = path.relative_to(root)
         if any(part in _SKIP_DIRS for part in rel.parts):
             continue
+        if path.name in _SKIP_FILENAMES:
+            continue
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
         except Exception:

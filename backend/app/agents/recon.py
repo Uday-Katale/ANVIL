@@ -397,7 +397,7 @@ def _deterministic_vuln_scan(files: list[dict], repo_url: str) -> list:
 
 
 @omium.trace("recon_agent", span_type="agent")
-def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
+def run_recon_source(repo_dir: str, repo_url: str, emit_fn=None) -> ReconOutput:
     """
     Scan cloned source code for vulnerabilities.
     Reads files from disk and sends them to GPT-4o for analysis.
@@ -408,6 +408,7 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
     If LLM fails, falls back to deterministic pattern matching.
     """
     from app.github_service import read_repo_files
+    from app.schemas import ScanStage
 
     with trace_operation(
         "recon_agent_source",
@@ -446,6 +447,9 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
             [len(b) for b in batches],
         )
 
+        if emit_fn:
+            emit_fn(ScanStage.RECON, "running", f"Found {total_file_count} scannable files. Splitting into {num_batches} batches for AI analysis...", progress_pct=18)
+
         # Step 3: Try LLM analysis first
         all_endpoints = []
         detected_framework = "Unknown"
@@ -461,6 +465,9 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
                     i, num_batches, len(batch),
                     ", ".join(f["path"] for f in batch[:3]),
                 )
+                
+                if emit_fn:
+                    emit_fn(ScanStage.RECON, "running", f"Analyzing batch {i}/{num_batches} with AI model ({len(batch)} files)...", progress_pct=18 + int((i / num_batches) * 10))
 
                 batch_endpoints = _analyze_batch(
                     client, batch, repo_url, system_prompt, i, num_batches,
@@ -471,6 +478,9 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
                     "Recon batch %d/%d: found %d vulnerabilities",
                     i, num_batches, len(batch_endpoints),
                 )
+                
+                if emit_fn:
+                    emit_fn(ScanStage.RECON, "running", f"Batch {i}/{num_batches} complete: found {len(batch_endpoints)} potential issues", progress_pct=18 + int((i / num_batches) * 10) + 2)
                 
                 # Extract framework from first successful batch
                 if detected_framework == "Unknown" and batch_endpoints:
@@ -484,6 +494,9 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
         # Step 4: ALWAYS run deterministic scan as a complement
         # This ensures we catch vulnerabilities even if LLM misses them
         logger.info("Running deterministic vulnerability scan...")
+        if emit_fn:
+            emit_fn(ScanStage.RECON, "running", "Running deterministic fallback scan...", progress_pct=29)
+            
         deterministic_vulns = _deterministic_vuln_scan(files, repo_url)
         
         # Merge LLM and deterministic results

@@ -393,7 +393,7 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
     # ── T2: Recon (source code analysis) ─────────────────────────────────
     def t2_action(state: MasterState) -> MasterState:
         try:
-            result = run_recon_source(state.repo_dir, state.repo_url or state.webhook.target_url)
+            result = run_recon_source(state.repo_dir, state.repo_url or state.webhook.target_url, emit_fn=_emit_sync)
             state.recon = result
             vuln_count = len(result.vulnerable_endpoints)
 
