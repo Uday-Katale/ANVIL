@@ -9,6 +9,7 @@ Supports two modes:
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import os
@@ -435,17 +436,16 @@ def run_patch_github(
         span.set_attribute("patch.confidence", confidence)
         span.set_attribute("patch.pr_url", pr_url)
 
-        # Generate a simple diff for display
-        diff_lines = []
-        orig_lines = original_code.splitlines()
-        fixed_lines = fixed_code.splitlines()
-        for line in orig_lines:
-            if line not in fixed_lines:
-                diff_lines.append(f"- {line}")
-        for line in fixed_lines:
-            if line not in orig_lines:
-                diff_lines.append(f"+ {line}")
-        unified_diff = "\n".join(diff_lines) if diff_lines else "(no diff available)"
+        # Generate a proper unified diff for display
+        unified_diff = "\n".join(
+            difflib.unified_diff(
+                original_code.splitlines(),
+                fixed_code.splitlines(),
+                fromfile=f"a/{target_file}",
+                tofile=f"b/{target_file}",
+                lineterm="",
+            )
+        ) or "(no diff available)"
 
         result = PatchOutput(
             file_modified=target_file,

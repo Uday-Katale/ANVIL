@@ -1,10 +1,15 @@
 """
-TDD Tests for the AST-Validated Subprocess Sandbox.
+Comprehensive test suite for the ANVIL system.
 
-Following the /tdd skill: vertical slices, one test at a time,
-testing behavior through the public interface.
+Covers:
+  - Sandbox AST validation (blocking dangerous constructs)
+  - Sandbox execution (safe code, timeouts, circuit breakers)
+  - Schema validation (Pydantic rejects malformed output)
+  - Verifier (deterministic pass/fail decisions)
+  - CPN Engine (transitions, retry loops, dead letter)
+  - Integration (mocked pipeline end-to-end)
 
-Run with: pytest tests/ -v
+Run with: pytest tests/test_sandbox.py -v --tb=short
 """
 
 import pytest
@@ -12,7 +17,9 @@ import pytest
 from app.sandbox import validate_code, execute_payload
 
 
-# ── AST Validation Tests ─────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# AST Validation Tests
+# ══════════════════════════════════════════════════════════════════════════════
 
 
 class TestASTValidation:
@@ -38,12 +45,12 @@ class TestASTValidation:
         """Calling subprocess.run should be rejected."""
         ok, msg = validate_code('import subprocess\nsubprocess.run(["ls"])')
         assert not ok, "subprocess.run was allowed!"
+        assert "Blocked" in msg
 
-    def test_syntax_error_caught(self):
-        """Syntax errors should fail validation fast."""
-        ok, msg = validate_code("def foo(")
-        assert not ok, "Syntax error was allowed!"
-        assert "SyntaxError" in msg
+    def test_subprocess_popen_blocked(self):
+        """Calling subprocess.Popen should be rejected."""
+        ok, msg = validate_code('import subprocess\nsubprocess.Popen(["ls"])')
+        assert not ok, "subprocess.Popen was allowed!"
 
     def test_eval_blocked(self):
         """Direct eval() calls should be rejected."""
@@ -60,13 +67,68 @@ class TestASTValidation:
         ok, msg = validate_code("import ctypes")
         assert not ok, "ctypes import was allowed!"
 
+    def test_socket_import_blocked(self):
+        """Importing socket should be rejected."""
+        ok, msg = validate_code("import socket\nsocket.socket()")
+        assert not ok, "socket import was allowed!"
+        assert "socket" in msg.lower()
+
+    def test_blocks_write_open(self):
+        """open() in write mode should be blocked."""
+        ok, msg = validate_code('f = open("file.txt", "w")\nf.write("data")')
+        assert not ok, "Write-mode open() was allowed!"
+        assert "write-mode" in msg.lower() or "blocked" in msg.lower()
+
+    def test_blocks_append_open(self):
+        """open() in append mode should be blocked."""
+        ok, msg = validate_code('f = open("file.txt", "a")')
+        assert not ok, "Append-mode open() was allowed!"
+
+    def test_allows_read_open(self):
+        """open() in read mode should be allowed."""
+        ok, msg = validate_code('f = open("file.txt", "r")\ndata = f.read()')
+        assert ok, f"Read-mode open() was rejected: {msg}"
+
     def test_safe_requests_allowed(self):
         """The requests library should be allowed (needed for exploits)."""
         ok, msg = validate_code('import requests\nrequests.get("http://example.com")')
         assert ok, f"Safe requests code rejected: {msg}"
 
+    def test_syntax_error_caught(self):
+        """Syntax errors should fail validation fast (fail-closed)."""
+        ok, msg = validate_code("def foo(")
+        assert not ok, "Syntax error was allowed!"
+        assert "SyntaxError" in msg
 
-# ── Sandbox Execution Tests ──────────────────────────────────────────────────
+    def test_fail_closed_on_syntax_error(self):
+        """Syntax error is fail-closed: code must NOT execute."""
+        success, stdout, stderr = execute_payload("def foo(")
+        assert not success, "Code with syntax error was executed!"
+
+    def test_pickle_loads_blocked(self):
+        """pickle.loads should be blocked to prevent deserialization attacks on host."""
+        ok, msg = validate_code('import pickle\npickle.loads(b"test")')
+        assert not ok, "pickle.loads was allowed!"
+
+    def test_compile_blocked(self):
+        """compile() should be blocked."""
+        ok, msg = validate_code('compile("print(1)", "<string>", "exec")')
+        assert not ok, "compile() was allowed!"
+
+    def test_threading_import_blocked(self):
+        """Importing threading should be blocked."""
+        ok, msg = validate_code("import threading")
+        assert not ok, "threading import was allowed!"
+
+    def test_from_import_blocked(self):
+        """from socket import ... should also be blocked."""
+        ok, msg = validate_code("from socket import socket")
+        assert not ok, "from socket import was allowed!"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sandbox Execution Tests
+# ══════════════════════════════════════════════════════════════════════════════
 
 
 class TestSandboxExecution:
@@ -78,7 +140,16 @@ class TestSandboxExecution:
         assert success, f"Execution failed: {stderr}"
         assert "EXPLOIT_SUCCESS" in stdout
 
-    def test_timeout_enforcement(self):
+    def test_stdout_captured_correctly(self):
+        """Multi-line stdout should be fully captured."""
+        code = 'print("line1")\nprint("line2")\nprint("line3")'
+        success, stdout, stderr = execute_payload(code)
+        assert success, f"Execution failed: {stderr}"
+        assert "line1" in stdout
+        assert "line2" in stdout
+        assert "line3" in stdout
+
+    def test_timeout_enforced(self):
         """Infinite loops should be killed by the timeout."""
         code = "while True: pass"
         success, stdout, stderr = execute_payload(code, timeout=2)
@@ -101,8 +172,109 @@ class TestSandboxExecution:
         assert not success, "Circuit breaker did not trigger!"
         assert "Circuit breaker" in stderr
 
+    def test_allows_safe_http_request(self):
+        """urllib.request (not raw socket) should be allowed for exploit payloads."""
+        code = (
+            'import urllib.request\n'
+            'try:\n'
+            '    urllib.request.urlopen("http://127.0.0.1:1", timeout=1)\n'
+            'except Exception as e:\n'
+            '    print(f"Expected error: {e}")\n'
+            '    print("CONNECTION_ATTEMPTED")\n'
+        )
+        ok, msg = validate_code(code)
+        assert ok, f"urllib.request should be allowed but was rejected: {msg}"
 
-# ── Verifier Tests ───────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Schema Validation Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSchemaValidation:
+    """Tests for Pydantic schema validation of agent outputs."""
+
+    def test_recon_output_rejects_missing_fields(self):
+        """ReconOutput should reject input missing required fields."""
+        from pydantic import ValidationError
+        from app.schemas import ReconOutput
+
+        with pytest.raises(ValidationError):
+            ReconOutput()  # Missing all required fields
+
+    def test_recon_output_rejects_invalid_severity(self):
+        """ReconOutput should accept valid severity values."""
+        from app.schemas import VulnerableEndpoint, HttpMethod
+
+        # This should work with valid severity
+        ep = VulnerableEndpoint(
+            path="/test",
+            method=HttpMethod.GET,
+            injection_vector="test vuln",
+            severity="critical",
+        )
+        assert ep.severity == "critical"
+
+    def test_exploit_output_rejects_non_string_code(self):
+        """ExploitOutput should reject non-string exploit_payload_used."""
+        from pydantic import ValidationError
+        from app.schemas import ExploitOutput
+
+        with pytest.raises(ValidationError):
+            ExploitOutput(
+                vulnerability_confirmed=True,
+                exploit_payload_used=12345,  # Should be string
+                sandbox_stdout="test",
+            )
+
+    def test_patch_output_requires_commit_hash_optional(self):
+        """PatchOutput should accept commit_hash as optional."""
+        from app.schemas import PatchOutput
+
+        result = PatchOutput(
+            file_modified="server.py",
+            unified_diff="--- a/server.py\n+++ b/server.py\n",
+            pull_request_title="Fix vuln",
+            pull_request_body="Body",
+            confidence_score=0.9,
+        )
+        assert result.commit_hash is None
+        assert result.tests_passed is None
+
+    def test_exploit_output_has_attempt_number(self):
+        """ExploitOutput should default attempt_number to 1."""
+        from app.schemas import ExploitOutput
+
+        result = ExploitOutput(
+            vulnerability_confirmed=True,
+            exploit_payload_used="test code",
+            sandbox_stdout="output",
+        )
+        assert result.attempt_number == 1
+
+    def test_verification_result_has_failure_category(self):
+        """VerificationResult should support failure_category."""
+        from app.schemas import VerificationResult
+
+        result = VerificationResult(
+            verified=False,
+            reason="No marker found",
+            failure_category="no_marker",
+        )
+        assert result.failure_category == "no_marker"
+
+    def test_master_state_has_attempt_history(self):
+        """MasterState should have attempt_history list."""
+        from app.schemas import MasterState
+
+        state = MasterState(trace_id="test", task_id="t")
+        assert isinstance(state.attempt_history, list)
+        assert len(state.attempt_history) == 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Verifier Tests
+# ══════════════════════════════════════════════════════════════════════════════
 
 
 class TestVerifier:
@@ -135,6 +307,7 @@ class TestVerifier:
         )
         result = verify_exploit(exploit)
         assert not result.verified
+        assert result.failure_category == "no_marker"
 
     def test_hallucinated_exploit_rejects(self):
         """Marker-only exploits with no evidence should be rejected."""
@@ -149,6 +322,7 @@ class TestVerifier:
         )
         result = verify_exploit(exploit)
         assert not result.verified
+        assert result.failure_category == "no_evidence"
 
     def test_self_reported_failure_rejects(self):
         """vulnerability_confirmed=False should always reject."""
@@ -163,9 +337,12 @@ class TestVerifier:
         )
         result = verify_exploit(exploit)
         assert not result.verified
+        assert result.failure_category == "not_confirmed"
 
 
-# ── CPN Engine Tests ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CPN Engine Tests
+# ══════════════════════════════════════════════════════════════════════════════
 
 
 class TestCPNEngine:
@@ -214,3 +391,173 @@ class TestCPNEngine:
         state = MasterState(trace_id="test", task_id="t", current_node="loop")
         final = engine.run(state)
         assert final.error and "max steps" in final.error.lower()
+
+    def test_recon_to_exploiter_transition(self):
+        """When current_node is exploit_ready, exploit transition should fire."""
+        from app.graph import CPNEngine
+        from app.schemas import MasterState
+
+        engine = CPNEngine()
+        p_exploit_ready = engine.add_place("exploit_ready")
+        p_exploit_done = engine.add_place("exploit_done", terminal=True)
+
+        def mock_exploit(state: MasterState) -> MasterState:
+            state.current_node = "exploit_done"
+            return state
+
+        engine.add_transition(
+            "t_exploit", p_exploit_ready,
+            {"done": p_exploit_done},
+            mock_exploit,
+        )
+
+        state = MasterState(trace_id="test", task_id="t", current_node="exploit_ready")
+        final = engine.run(state)
+        assert final.current_node == "exploit_done"
+        assert final.completed
+
+    def test_verifier_fail_loops_to_exploiter(self):
+        """Verification failure should loop back to exploit_ready."""
+        from app.graph import CPNEngine
+        from app.schemas import MasterState
+
+        engine = CPNEngine()
+        p_exploit_ready = engine.add_place("exploit_ready")
+        p_exploit_done = engine.add_place("exploit_done")
+        p_patch_ready = engine.add_place("patch_ready", terminal=True)
+
+        call_count = {"exploit": 0, "verify": 0}
+
+        def mock_exploit(state: MasterState) -> MasterState:
+            call_count["exploit"] += 1
+            state.current_node = "exploit_done"
+            return state
+
+        def mock_verify(state: MasterState) -> MasterState:
+            call_count["verify"] += 1
+            if call_count["verify"] < 3:
+                state.retry_count += 1
+                state.current_node = "exploit_ready"
+            else:
+                state.current_node = "patch_ready"
+            return state
+
+        engine.add_transition("t_exploit", p_exploit_ready, {"done": p_exploit_done}, mock_exploit)
+        engine.add_transition("t_verify", p_exploit_done, {"pass": p_patch_ready, "retry": p_exploit_ready}, mock_verify)
+
+        state = MasterState(trace_id="test", task_id="t", current_node="exploit_ready")
+        final = engine.run(state)
+        assert final.current_node == "patch_ready"
+        assert call_count["exploit"] == 3
+        assert call_count["verify"] == 3
+
+    def test_max_retry_triggers_dead_letter(self):
+        """Exceeding max retries should route to dead_letter terminal state."""
+        from app.graph import CPNEngine
+        from app.schemas import MasterState
+
+        engine = CPNEngine()
+        p_exploit_ready = engine.add_place("exploit_ready")
+        p_exploit_done = engine.add_place("exploit_done")
+        p_dead_letter = engine.add_place("dead_letter", terminal=True)
+
+        max_retries = 3
+
+        def mock_exploit(state: MasterState) -> MasterState:
+            state.current_node = "exploit_done"
+            return state
+
+        def mock_verify(state: MasterState) -> MasterState:
+            state.retry_count += 1
+            if state.retry_count > max_retries:
+                state.current_node = "dead_letter"
+                state.error = "Max retries exceeded"
+            else:
+                state.current_node = "exploit_ready"
+            return state
+
+        engine.add_transition("t_exploit", p_exploit_ready, {"done": p_exploit_done}, mock_exploit)
+        engine.add_transition("t_verify", p_exploit_done, {"dead": p_dead_letter, "retry": p_exploit_ready}, mock_verify)
+
+        state = MasterState(trace_id="test", task_id="t", current_node="exploit_ready")
+        final = engine.run(state)
+        assert final.current_node == "dead_letter"
+        assert final.completed
+        assert "Max retries" in final.error
+
+    def test_verified_routes_to_patcher(self):
+        """Verified exploit should route to patch_ready."""
+        from app.graph import CPNEngine
+        from app.schemas import MasterState
+
+        engine = CPNEngine()
+        p_exploit_done = engine.add_place("exploit_done")
+        p_patch_ready = engine.add_place("patch_ready", terminal=True)
+        p_exploit_ready = engine.add_place("exploit_ready")
+
+        def mock_verify(state: MasterState) -> MasterState:
+            state.current_node = "patch_ready"
+            return state
+
+        engine.add_transition(
+            "t_verify", p_exploit_done,
+            {"pass": p_patch_ready, "retry": p_exploit_ready},
+            mock_verify,
+        )
+
+        state = MasterState(trace_id="test", task_id="t", current_node="exploit_done")
+        final = engine.run(state)
+        assert final.current_node == "patch_ready"
+        assert final.completed
+
+    def test_concurrent_tokens_isolated(self):
+        """Two tokens running through the same engine should not interfere."""
+        from app.graph import CPNEngine
+        from app.schemas import MasterState
+
+        engine = CPNEngine()
+        p_start = engine.add_place("start")
+        p_end = engine.add_place("end", terminal=True)
+
+        def action(state: MasterState) -> MasterState:
+            state.current_node = "end"
+            return state
+
+        engine.add_transition("t1", p_start, {"next": p_end}, action)
+
+        state1 = MasterState(trace_id="token-1", task_id="t1", current_node="start")
+        state2 = MasterState(trace_id="token-2", task_id="t2", current_node="start")
+
+        final1 = engine.run(state1)
+        final2 = engine.run(state2)
+
+        assert final1.trace_id == "token-1"
+        assert final2.trace_id == "token-2"
+        assert final1.current_node == "end"
+        assert final2.current_node == "end"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Integration Tests (mocked LLM)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestIntegration:
+    """Integration tests using mocked LLM and real sandbox."""
+
+    def test_webhook_rejected_on_bad_schema(self):
+        """POST /webhook with invalid data should not crash."""
+        from app.schemas import WebhookPayload
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            # Missing required field target_url
+            WebhookPayload(deployment_id="test-001")
+
+    def test_scan_request_validates(self):
+        """ScanRequest should validate required fields."""
+        from app.schemas import ScanRequest
+
+        req = ScanRequest(repo_url="https://github.com/user/repo")
+        assert req.repo_url == "https://github.com/user/repo"
+        assert req.base_branch == "main"

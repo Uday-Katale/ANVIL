@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Webhook Ingress ──────────────────────────────────────────────────────────
@@ -42,13 +42,36 @@ class HttpMethod(str, Enum):
 
 
 class VulnerableEndpoint(BaseModel):
-    path: str = Field(..., description="URL path of the vulnerable endpoint")
+    """A single discovered vulnerability in the target."""
+    model_config = ConfigDict(extra="ignore")
+
+    path: str = Field(..., description="URL path or file:line of the vulnerable endpoint")
     method: HttpMethod = Field(..., description="HTTP method to trigger the vulnerability")
     injection_vector: str = Field(..., description="Description of the injection vector")
+    vulnerability_type: Optional[str] = Field(
+        None,
+        description="Category: path_traversal, sqli, cmdi, ssti, idor, xxe, deserialize, xss, ssrf",
+    )
+    severity: Optional[str] = Field(
+        None,
+        description="Severity level: critical, high, medium, low",
+    )
+    confidence: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Confidence score 0.0-1.0",
+    )
+    taint_path: Optional[str] = Field(
+        None,
+        description="Source param -> ... -> sink call taint path",
+    )
+    code_snippet: Optional[str] = Field(
+        None, description="Exact vulnerable lines of code",
+    )
 
 
 class ReconOutput(BaseModel):
     """Strict output contract for the Reconnaissance agent."""
+    model_config = ConfigDict(extra="ignore")
+
     target_url: str = Field(..., description="Base URL of the scanned target")
     detected_framework: str = Field(..., description="Detected web framework or server")
     vulnerable_endpoints: List[VulnerableEndpoint] = Field(
@@ -60,6 +83,8 @@ class ReconOutput(BaseModel):
 
 class ExploitOutput(BaseModel):
     """Strict output contract for the Exploiter agent."""
+    model_config = ConfigDict(extra="ignore")
+
     vulnerability_confirmed: bool = Field(
         ..., description="Whether the vulnerability was actively confirmed"
     )
@@ -70,7 +95,16 @@ class ExploitOutput(BaseModel):
         ..., description="Raw stdout captured from the sandbox execution"
     )
     exploit_evidence: Optional[str] = Field(
-        None, description="Evidence of successful exploitation extracted from stdout (e.g. leaked secrets, file contents, env vars)"
+        None, description="Evidence of successful exploitation extracted from stdout"
+    )
+    expected_proof_pattern: Optional[str] = Field(
+        None, description="The pattern the Verifier should check for in stdout"
+    )
+    exploit_type: Optional[str] = Field(
+        None, description="Category of exploit used (path_traversal, sqli, etc.)"
+    )
+    attempt_number: int = Field(
+        1, description="Which attempt this is (1-indexed)"
     )
 
 
@@ -78,6 +112,8 @@ class ExploitOutput(BaseModel):
 
 class PatchOutput(BaseModel):
     """Strict output contract for the Patcher agent."""
+    model_config = ConfigDict(extra="ignore")
+
     file_modified: str = Field(..., description="Relative path to the patched file")
     unified_diff: str = Field(..., description="Unified diff of the applied fix")
     pull_request_title: str = Field(..., description="Title for the generated PR/commit")
@@ -90,12 +126,20 @@ class PatchOutput(BaseModel):
     pr_url: Optional[str] = Field(
         None, description="URL of the created GitHub Pull Request"
     )
+    commit_hash: Optional[str] = Field(
+        None, description="Git commit hash of the fix"
+    )
+    tests_passed: Optional[bool] = Field(
+        None, description="Whether the target app's tests passed after patching"
+    )
 
 
 # ── Verifier ─────────────────────────────────────────────────────────────────
 
 class VerificationResult(BaseModel):
     """Output of the deterministic Verifier node."""
+    model_config = ConfigDict(extra="ignore")
+
     verified: bool = Field(
         ..., description="True only if the sandbox stdout cryptographically proves exploitation"
     )
@@ -106,9 +150,21 @@ class VerificationResult(BaseModel):
     actual_value: Optional[str] = Field(
         None, description="The actual value found in stdout"
     )
+    failure_category: Optional[str] = Field(
+        None,
+        description="Category of failure: timeout | wrong_output | exception | no_marker | no_evidence",
+    )
 
 
 # ── Master State (CPN Token) ────────────────────────────────────────────────
+
+class AttemptRecord(BaseModel):
+    """Record of a single exploit attempt for feedback-aware retries."""
+    attempt_number: int
+    exploit_code: str
+    sandbox_stdout: str
+    failure_reason: str
+
 
 class MasterState(BaseModel):
     """The coloured token that flows through the Petri net."""
@@ -123,6 +179,11 @@ class MasterState(BaseModel):
     patch: Optional[PatchOutput] = None
     error: Optional[str] = None
     completed: bool = False
+    # Exploit retry feedback
+    attempt_history: List[AttemptRecord] = Field(
+        default_factory=list,
+        description="History of failed exploit attempts for feedback-aware retries",
+    )
     # Web-app additions
     repo_url: Optional[str] = None
     repo_dir: Optional[str] = None

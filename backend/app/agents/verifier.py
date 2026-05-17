@@ -84,6 +84,7 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
                 reason=reason,
                 expected_pattern=f"{_SUCCESS_MARKER} in stdout",
                 actual_value=stdout[:200],
+                failure_category="not_confirmed",
             )
 
         # ── Check 2: stdout contains the success marker ──────────────────
@@ -101,6 +102,7 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
                 reason=reason,
                 expected_pattern=_SUCCESS_MARKER,
                 actual_value=stdout[:200],
+                failure_category="no_marker",
             )
 
         # ── Check 3: stdout has meaningful evidence beyond the marker ─────
@@ -129,6 +131,7 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
                 reason=reason,
                 expected_pattern=f"{_SUCCESS_MARKER} + meaningful evidence",
                 actual_value=stdout[:200],
+                failure_category="no_evidence",
             )
         
         # Special case: if evidence is short but contains crash indicators, accept it

@@ -31,6 +31,7 @@ _BLOCKED_MODULES: Set[str] = {
     "shutil", "ctypes", "multiprocessing", "signal",
     "importlib", "code", "codeop", "compileall",
     "pty", "resource", "readline",
+    "socket", "threading",
 }
 
 _BLOCKED_FUNCTIONS: Set[str] = {
@@ -39,8 +40,12 @@ _BLOCKED_FUNCTIONS: Set[str] = {
     "os.system", "os.popen", "os.exec", "os.execl",
     "os.execle", "os.execlp", "os.execlpe", "os.execv",
     "os.execve", "os.execvp", "os.execvpe", "os.fork",
-    "subprocess.Popen", "subprocess.call",
-    "eval", "exec", "__import__",
+    "subprocess.Popen", "subprocess.call", "subprocess.run",
+    "eval", "exec", "__import__", "compile",
+    "shutil.rmtree", "shutil.move",
+    "pickle.loads", "pickle.load",
+    "importlib.import_module",
+    "ctypes.cdll",
 }
 
 # ── Signature-hash dedup (circuit breaker) ───────────────────────────────────
@@ -61,28 +66,44 @@ class _DangerousNodeVisitor(ast.NodeVisitor):
         self.violations: list[str] = []
 
     def visit_Import(self, node: ast.Import) -> None:
+        """Block dangerous module imports."""
         for alias in node.names:
-            if alias.name in _BLOCKED_MODULES:
+            top_module = alias.name.split(".")[0]
+            if top_module in _BLOCKED_MODULES:
                 self.violations.append(f"Blocked import: {alias.name}")
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        if node.module and node.module in _BLOCKED_MODULES:
-            self.violations.append(f"Blocked import-from: {node.module}")
+        """Block dangerous from-imports including submodules."""
+        if node.module:
+            top_module = node.module.split(".")[0]
+            if top_module in _BLOCKED_MODULES:
+                self.violations.append(f"Blocked import-from: {node.module}")
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        """Block dangerous function calls and open() in write mode."""
         func_name = _resolve_call_name(node)
         if func_name and func_name in _BLOCKED_FUNCTIONS:
             self.violations.append(f"Blocked call: {func_name}")
-        elif func_name == "subprocess.run":
-            has_shell_true = False
+        # Block open() in write/append/create modes
+        if func_name == "open" and len(node.args) > 1:
+            mode_arg = node.args[1]
+            if isinstance(mode_arg, ast.Constant) and isinstance(mode_arg.value, str):
+                if any(m in mode_arg.value for m in ("w", "a", "x", "+")):
+                    self.violations.append(
+                        f"Blocked write-mode open() at line {node.lineno}"
+                    )
+        # Also block open() with mode keyword arg in write mode
+        if func_name == "open":
             for keyword in node.keywords:
-                if keyword.arg == "shell":
-                    if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
-                        has_shell_true = True
-            if has_shell_true:
-                self.violations.append("subprocess.run with shell=True is blocked")
+                if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
+                    if isinstance(keyword.value.value, str) and any(
+                        m in keyword.value.value for m in ("w", "a", "x", "+")
+                    ):
+                        self.violations.append(
+                            f"Blocked write-mode open() at line {node.lineno}"
+                        )
         self.generic_visit(node)
 
 

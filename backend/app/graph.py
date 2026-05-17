@@ -17,7 +17,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from app import db
-from app.schemas import MasterState
+from app.schemas import AttemptRecord, MasterState
 from app.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -205,6 +205,7 @@ def build_red_team_cpn() -> CPNEngine:
     p_patch_done    = engine.add_place("patch_done", terminal=True, description="Patch committed")
     p_end_safe      = engine.add_place("end_safe", terminal=True, description="No vulnerability found")
     p_end_error     = engine.add_place("end_error", terminal=True, description="Pipeline failed")
+    p_dead_letter   = engine.add_place("dead_letter", terminal=True, description="Max exploit attempts exceeded — requires human review")
 
     # ── Transitions ───────────────────────────────────────────────────────
 
@@ -272,12 +273,27 @@ def build_red_team_cpn() -> CPNEngine:
                 logger.info("Verification passed: %s", result.reason)
                 state.current_node = "patch_ready"
             else:
+                # Record the failed attempt for feedback-aware retries
+                if state.exploit:
+                    state.attempt_history.append(AttemptRecord(
+                        attempt_number=state.retry_count + 1,
+                        exploit_code=state.exploit.exploit_payload_used[:2000],
+                        sandbox_stdout=state.exploit.sandbox_stdout[:1000],
+                        failure_reason=result.reason[:500],
+                    ))
+
                 # Retry logic with circuit breaker
                 state.retry_count += 1
                 if state.retry_count > SANDBOX_MAX_RETRIES:
-                    logger.error("Max retries exceeded at verification")
-                    state.error = f"Verification failed after {state.retry_count} retries: {result.reason}"
-                    state.current_node = "end_error"
+                    logger.error(
+                        "Max retries (%d) exceeded — routing to dead letter",
+                        SANDBOX_MAX_RETRIES,
+                    )
+                    state.error = (
+                        f"Verification failed after {state.retry_count} retries: "
+                        f"{result.reason}"
+                    )
+                    state.current_node = "dead_letter"
                 else:
                     logger.warning(
                         "Verification failed (attempt %d/%d): %s — retrying exploit",
@@ -292,7 +308,7 @@ def build_red_team_cpn() -> CPNEngine:
 
     engine.add_transition(
         "t4_verify", p_exploit_done,
-        {"verified": p_patch_ready, "retry": p_exploit_ready, "fail": p_end_error},
+        {"verified": p_patch_ready, "retry": p_exploit_ready, "dead_letter": p_dead_letter, "fail": p_end_error},
         t4_action,
     )
 
@@ -365,6 +381,7 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
     p_patch_done    = engine.add_place("patch_done", terminal=True, description="PR created")
     p_end_safe      = engine.add_place("end_safe", terminal=True, description="No vulnerability found")
     p_end_error     = engine.add_place("end_error", terminal=True, description="Pipeline failed")
+    p_dead_letter   = engine.add_place("dead_letter", terminal=True, description="Max exploit attempts exceeded — requires human review")
 
     # ── T1: Ingress → Recon ───────────────────────────────────────────────
     def t1_action(state: MasterState) -> MasterState:
@@ -455,13 +472,28 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
                             f"Exploit verified: {result.reason[:100]}", progress_pct=70)
                 state.current_node = "patch_ready"
             else:
+                # Record the failed attempt for feedback-aware retries
+                if state.exploit:
+                    state.attempt_history.append(AttemptRecord(
+                        attempt_number=state.retry_count + 1,
+                        exploit_code=state.exploit.exploit_payload_used[:2000],
+                        sandbox_stdout=state.exploit.sandbox_stdout[:1000],
+                        failure_reason=result.reason[:500],
+                    ))
+
                 state.retry_count += 1
                 if state.retry_count > SANDBOX_MAX_RETRIES:
-                    logger.error("Max retries exceeded at verification")
-                    state.error = f"Verification failed after {state.retry_count} retries: {result.reason}"
+                    logger.error(
+                        "Max retries (%d) exceeded — routing to dead letter",
+                        SANDBOX_MAX_RETRIES,
+                    )
+                    state.error = (
+                        f"Verification failed after {state.retry_count} retries: "
+                        f"{result.reason}"
+                    )
                     _emit_sync(ScanStage.VERIFY, "error",
                                 f"Max retries exceeded: {result.reason[:100]}")
-                    state.current_node = "end_error"
+                    state.current_node = "dead_letter"
                 else:
                     logger.warning("Verification failed (attempt %d/%d): %s",
                                  state.retry_count, SANDBOX_MAX_RETRIES, result.reason)
@@ -478,7 +510,7 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
 
     engine.add_transition(
         "t4_verify", p_exploit_done,
-        {"verified": p_patch_ready, "retry": p_exploit_ready, "fail": p_end_error},
+        {"verified": p_patch_ready, "retry": p_exploit_ready, "dead_letter": p_dead_letter, "fail": p_end_error},
         t4_action,
     )
 
