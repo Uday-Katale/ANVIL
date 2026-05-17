@@ -225,12 +225,15 @@ def build_red_team_cpn() -> CPNEngine:
             result = run_recon(state.webhook.target_url)
             state.recon = result
             if result.vulnerable_endpoints:
+                logger.info("Recon found %d vulnerabilities, proceeding to exploit",
+                           len(result.vulnerable_endpoints))
                 state.current_node = "exploit_ready"
             else:
+                logger.info("Recon found no vulnerabilities, ending safely")
                 state.current_node = "end_safe"
         except Exception as exc:
-            logger.error("Recon failed: %s", exc)
-            state.error = str(exc)
+            logger.error("Recon failed: %s", exc, exc_info=True)
+            state.error = f"Recon agent failed: {str(exc)}"
             state.current_node = "end_error"
         return state
 
@@ -245,10 +248,11 @@ def build_red_team_cpn() -> CPNEngine:
         try:
             result = run_exploit(state.recon)
             state.exploit = result
+            logger.info("Exploit completed: confirmed=%s", result.vulnerability_confirmed)
             state.current_node = "exploit_done"
         except Exception as exc:
-            logger.error("Exploit failed: %s", exc)
-            state.error = str(exc)
+            logger.error("Exploit failed: %s", exc, exc_info=True)
+            state.error = f"Exploit agent failed: {str(exc)}"
             state.current_node = "end_error"
         return state
 
@@ -260,24 +264,30 @@ def build_red_team_cpn() -> CPNEngine:
 
     # T4: Exploit Done → Verified (runs the Verifier)
     def t4_action(state: MasterState) -> MasterState:
-        result = verify_exploit(state.exploit)
-        state.verification = result
+        try:
+            result = verify_exploit(state.exploit)
+            state.verification = result
 
-        if result.verified:
-            state.current_node = "patch_ready"
-        else:
-            # Retry logic with circuit breaker
-            state.retry_count += 1
-            if state.retry_count > SANDBOX_MAX_RETRIES:
-                logger.error("Max retries exceeded at verification")
-                state.error = f"Verification failed after {state.retry_count} retries: {result.reason}"
-                state.current_node = "end_error"
+            if result.verified:
+                logger.info("Verification passed: %s", result.reason)
+                state.current_node = "patch_ready"
             else:
-                logger.warning(
-                    "Verification failed (attempt %d/%d): %s — retrying exploit",
-                    state.retry_count, SANDBOX_MAX_RETRIES, result.reason,
-                )
-                state.current_node = "exploit_ready"
+                # Retry logic with circuit breaker
+                state.retry_count += 1
+                if state.retry_count > SANDBOX_MAX_RETRIES:
+                    logger.error("Max retries exceeded at verification")
+                    state.error = f"Verification failed after {state.retry_count} retries: {result.reason}"
+                    state.current_node = "end_error"
+                else:
+                    logger.warning(
+                        "Verification failed (attempt %d/%d): %s — retrying exploit",
+                        state.retry_count, SANDBOX_MAX_RETRIES, result.reason,
+                    )
+                    state.current_node = "exploit_ready"
+        except Exception as exc:
+            logger.error("Verifier failed: %s", exc, exc_info=True)
+            state.error = f"Verifier failed: {str(exc)}"
+            state.current_node = "end_error"
         return state
 
     engine.add_transition(
@@ -296,10 +306,11 @@ def build_red_team_cpn() -> CPNEngine:
                 state.trace_id,
             )
             state.patch = result
+            logger.info("Patch completed: confidence=%.0f%%", result.confidence_score * 100)
             state.current_node = "patch_done"
         except Exception as exc:
-            logger.error("Patch failed: %s", exc)
-            state.error = str(exc)
+            logger.error("Patch failed: %s", exc, exc_info=True)
+            state.error = f"Patch agent failed: {str(exc)}"
             state.current_node = "end_error"
         return state
 
@@ -370,18 +381,20 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
             vuln_count = len(result.vulnerable_endpoints)
 
             if result.vulnerable_endpoints:
+                logger.info("Recon found %d vulnerabilities in %s", vuln_count, state.repo_url)
                 _emit_sync(ScanStage.RECON, "done",
                            f"Found {vuln_count} vulnerability(ies)",
                            vuln_count=vuln_count, progress_pct=30)
                 state.current_node = "exploit_ready"
             else:
+                logger.info("Recon found no vulnerabilities in %s", state.repo_url)
                 _emit_sync(ScanStage.RECON, "done",
                            "No vulnerabilities found — repo is clean!",
                            vuln_count=0, progress_pct=100)
                 state.current_node = "end_safe"
         except Exception as exc:
-            logger.error("Recon failed: %s", exc)
-            state.error = str(exc)
+            logger.error("Recon failed: %s", exc, exc_info=True)
+            state.error = f"Recon agent failed: {str(exc)}"
             _emit_sync(ScanStage.RECON, "error", f"Recon failed: {exc}")
             state.current_node = "end_error"
         return state
@@ -408,14 +421,16 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
 
             result = run_exploit(state.recon, repo_dir=state.repo_dir, entry_point=entry_point)
             state.exploit = result
+            logger.info("Exploit completed: confirmed=%s, has_evidence=%s",
+                       result.vulnerability_confirmed, bool(result.exploit_evidence))
             _emit_sync(ScanStage.EXPLOIT, "done",
                         f"Exploit {'confirmed' if result.vulnerability_confirmed else 'attempted'}",
                         detail=result.exploit_evidence or result.sandbox_stdout[:200] if result.exploit_evidence or result.sandbox_stdout else None,
                         progress_pct=55)
             state.current_node = "exploit_done"
         except Exception as exc:
-            logger.error("Exploit failed: %s", exc)
-            state.error = str(exc)
+            logger.error("Exploit failed: %s", exc, exc_info=True)
+            state.error = f"Exploit agent failed: {str(exc)}"
             _emit_sync(ScanStage.EXPLOIT, "error", f"Exploit failed: {exc}")
             state.current_node = "end_error"
         return state
@@ -430,26 +445,35 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
     def t4_action(state: MasterState) -> MasterState:
         _emit_sync(ScanStage.VERIFY, "running",
                     "Verifying exploit (deterministic)...", progress_pct=60)
-        result = verify_exploit(state.exploit)
-        state.verification = result
+        try:
+            result = verify_exploit(state.exploit)
+            state.verification = result
 
-        if result.verified:
-            _emit_sync(ScanStage.VERIFY, "done",
-                        f"Exploit verified: {result.reason[:100]}", progress_pct=70)
-            state.current_node = "patch_ready"
-        else:
-            state.retry_count += 1
-            if state.retry_count > SANDBOX_MAX_RETRIES:
-                logger.error("Max retries exceeded at verification")
-                state.error = f"Verification failed after {state.retry_count} retries: {result.reason}"
-                _emit_sync(ScanStage.VERIFY, "error",
-                            f"Max retries exceeded: {result.reason[:100]}")
-                state.current_node = "end_error"
+            if result.verified:
+                logger.info("Verification passed: %s", result.reason)
+                _emit_sync(ScanStage.VERIFY, "done",
+                            f"Exploit verified: {result.reason[:100]}", progress_pct=70)
+                state.current_node = "patch_ready"
             else:
-                _emit_sync(ScanStage.VERIFY, "running",
-                            f"Verification failed (attempt {state.retry_count}/{SANDBOX_MAX_RETRIES}), retrying...",
-                            progress_pct=45)
-                state.current_node = "exploit_ready"
+                state.retry_count += 1
+                if state.retry_count > SANDBOX_MAX_RETRIES:
+                    logger.error("Max retries exceeded at verification")
+                    state.error = f"Verification failed after {state.retry_count} retries: {result.reason}"
+                    _emit_sync(ScanStage.VERIFY, "error",
+                                f"Max retries exceeded: {result.reason[:100]}")
+                    state.current_node = "end_error"
+                else:
+                    logger.warning("Verification failed (attempt %d/%d): %s",
+                                 state.retry_count, SANDBOX_MAX_RETRIES, result.reason)
+                    _emit_sync(ScanStage.VERIFY, "running",
+                                f"Verification failed (attempt {state.retry_count}/{SANDBOX_MAX_RETRIES}), retrying...",
+                                progress_pct=45)
+                    state.current_node = "exploit_ready"
+        except Exception as exc:
+            logger.error("Verifier failed: %s", exc, exc_info=True)
+            state.error = f"Verifier failed: {str(exc)}"
+            _emit_sync(ScanStage.VERIFY, "error", f"Verification failed: {exc}")
+            state.current_node = "end_error"
         return state
 
     engine.add_transition(
@@ -474,14 +498,16 @@ def build_web_cpn(scan_id: str, emit_fn, loop=None) -> CPNEngine:
                 base_branch=state.base_branch,
             )
             state.patch = result
+            logger.info("Patch completed: PR=%s, confidence=%.0f%%",
+                       result.pr_url, result.confidence_score * 100)
 
             _emit_sync(ScanStage.PUSHING, "done",
                         f"Pull Request created!",
                         pr_url=result.pr_url, progress_pct=95)
             state.current_node = "patch_done"
         except Exception as exc:
-            logger.error("Patch failed: %s", exc)
-            state.error = str(exc)
+            logger.error("Patch failed: %s", exc, exc_info=True)
+            state.error = f"Patch agent failed: {str(exc)}"
             _emit_sync(ScanStage.PATCH, "error", f"Patch failed: {exc}")
             state.current_node = "end_error"
         return state

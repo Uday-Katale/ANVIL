@@ -1,0 +1,6 @@
+cd to backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+
+cd to frontend
+npm run dev

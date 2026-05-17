@@ -382,7 +382,7 @@ def _get_or_create_fork(g: Github, upstream_repo, max_wait: int = 30):
         pass  # No existing fork, create one
 
     logger.info("Forking %s into %s...", upstream_repo.full_name, user.login)
-    fork = user.create_fork(upstream_repo)
+    fork = upstream_repo.create_fork()
 
     # GitHub forks are async — poll until the fork is ready
     for _ in range(max_wait):
@@ -402,19 +402,19 @@ def _get_or_create_fork(g: Github, upstream_repo, max_wait: int = 30):
 def create_branch_and_pr(
     *,
     # Accept both naming conventions for backward compatibility
-    github_token: str = None,
-    token: str = None,
-    repo_url: str = None,
-    repo_full_name: str = None,
-    branch_name: str = None,
-    fix_branch: str = None,
+    github_token: Optional[str] = None,
+    token: Optional[str] = None,
+    repo_url: Optional[str] = None,
+    repo_full_name: Optional[str] = None,
+    branch_name: Optional[str] = None,
+    fix_branch: Optional[str] = None,
     base_branch: str = "main",
     # Single file mode
-    file_path: str = None,
-    new_content: str = None,
+    file_path: Optional[str] = None,
+    new_content: Optional[str] = None,
     # Multi-file mode (from patcher)
-    fixed_files: list = None,
-    commit_message: str = "fix: automated security patch by A.E.G.I.S.",
+    fixed_files: Optional[list] = None,
+    commit_message: str = "fix: automated security patch by Anvil",
     pr_title: str = "Security Fix",
     pr_body: str = "",
 ) -> str:
@@ -425,6 +425,8 @@ def create_branch_and_pr(
     If the authenticated user does NOT have push access to the target repo,
     the function automatically forks the repo and opens a cross-repo PR
     (fork → upstream), which is the standard GitHub contribution model.
+    
+    Includes retry logic and better error handling.
     """
     # Resolve parameter aliases
     _token = github_token or token
@@ -442,8 +444,11 @@ def create_branch_and_pr(
     else:
         raise ValueError("repo_url or repo_full_name is required")
 
-    g = Github(_token)
-    upstream_repo = g.get_repo(full_name)
+    try:
+        g = Github(_token)
+        upstream_repo = g.get_repo(full_name)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to access repository {full_name}: {exc}")
 
     # Determine if we need to fork
     use_fork = not _has_push_access(upstream_repo)
@@ -453,15 +458,40 @@ def create_branch_and_pr(
             "No push access to %s — will fork and open cross-repo PR",
             full_name,
         )
-        push_repo = _get_or_create_fork(g, upstream_repo)
-        fork_owner = push_repo.owner.login
+        try:
+            push_repo = _get_or_create_fork(g, upstream_repo)
+            fork_owner = push_repo.owner.login
+        except Exception as exc:
+            raise RuntimeError(f"Failed to create/access fork: {exc}")
     else:
         push_repo = upstream_repo
         fork_owner = None
 
     # Get the SHA of the base branch head (from upstream)
-    base_ref = upstream_repo.get_git_ref(f"heads/{base_branch}")
-    base_sha = base_ref.object.sha
+    try:
+        base_ref = upstream_repo.get_git_ref(f"heads/{base_branch}")
+        base_sha = base_ref.object.sha
+    except Exception as exc:
+        # Try common alternative branch names
+        for alt_branch in ["master", "develop", "dev"]:
+            try:
+                base_ref = upstream_repo.get_git_ref(f"heads/{alt_branch}")
+                base_sha = base_ref.object.sha
+                base_branch = alt_branch
+                logger.info("Using alternative base branch: %s", alt_branch)
+                break
+            except Exception:
+                continue
+        else:
+            try:
+                branches = [b.name for b in list(upstream_repo.get_branches())[:5]]
+                branch_list = ", ".join(branches)
+            except Exception:
+                branch_list = "unknown"
+            raise RuntimeError(
+                f"Could not find base branch '{base_branch}' or alternatives. "
+                f"Available branches: {branch_list}"
+            )
 
     # Create the new branch on the push target (fork or upstream)
     try:
@@ -469,9 +499,17 @@ def create_branch_and_pr(
         logger.info("Created branch: %s on %s", _branch, push_repo.full_name)
     except Exception as exc:
         if "Reference already exists" in str(exc):
-            logger.warning("Branch %s already exists, reusing", _branch)
+            logger.warning("Branch %s already exists, will update it", _branch)
+            # Update the existing branch to point to base_sha
+            try:
+                ref = push_repo.get_git_ref(f"heads/{_branch}")
+                ref.edit(sha=base_sha, force=True)
+                logger.info("Updated existing branch %s", _branch)
+            except Exception as update_exc:
+                logger.error("Failed to update existing branch: %s", update_exc)
+                raise RuntimeError(f"Branch {_branch} exists and cannot be updated: {update_exc}")
         else:
-            raise
+            raise RuntimeError(f"Failed to create branch {_branch}: {exc}")
 
     # Build list of files to commit
     files_to_commit = []
@@ -483,39 +521,73 @@ def create_branch_and_pr(
         raise ValueError("Either fixed_files or (file_path + new_content) is required")
 
     # Commit each file to the push target
+    commit_errors = []
     for f in files_to_commit:
         fpath = f["path"]
         fcontent = f["content"]
         try:
+            # Try to update existing file
             contents = push_repo.get_contents(fpath, ref=_branch)
+            # Handle both single file and list of files
+            if isinstance(contents, list):
+                if len(contents) > 0:
+                    file_sha = contents[0].sha
+                else:
+                    raise Exception("File not found")
+            else:
+                file_sha = contents.sha
+            
             push_repo.update_file(
                 path=fpath,
                 message=commit_message,
                 content=fcontent,
-                sha=contents.sha,
+                sha=file_sha,
                 branch=_branch,
             )
-        except Exception:
-            push_repo.create_file(
-                path=fpath,
-                message=commit_message,
-                content=fcontent,
-                branch=_branch,
-            )
-        logger.info("Committed fix to %s on branch %s", fpath, _branch)
+            logger.info("Updated %s on branch %s", fpath, _branch)
+        except Exception as get_exc:
+            # File doesn't exist, create it
+            try:
+                push_repo.create_file(
+                    path=fpath,
+                    message=commit_message,
+                    content=fcontent,
+                    branch=_branch,
+                )
+                logger.info("Created %s on branch %s", fpath, _branch)
+            except Exception as create_exc:
+                error_msg = f"Failed to commit {fpath}: {create_exc}"
+                logger.error(error_msg)
+                commit_errors.append(error_msg)
+
+    if commit_errors:
+        raise RuntimeError(f"Failed to commit files: {'; '.join(commit_errors)}")
 
     # Open the PR on the UPSTREAM repo
     # For cross-repo PRs, head must be "fork_owner:branch"
     head_ref = f"{fork_owner}:{_branch}" if use_fork else _branch
 
-    pr = upstream_repo.create_pull(
-        title=pr_title,
-        body=pr_body,
-        head=head_ref,
-        base=base_branch,
-    )
-    logger.info("PR created: %s", pr.html_url)
-    return pr.html_url
+    try:
+        pr = upstream_repo.create_pull(
+            title=pr_title,
+            body=pr_body,
+            head=head_ref,
+            base=base_branch,
+        )
+        logger.info("PR created: %s", pr.html_url)
+        return pr.html_url
+    except Exception as exc:
+        # Check if PR already exists
+        if "pull request already exists" in str(exc).lower():
+            # Try to find the existing PR
+            try:
+                prs = upstream_repo.get_pulls(state="open", head=head_ref, base=base_branch)
+                for pr in prs:
+                    logger.info("Found existing PR: %s", pr.html_url)
+                    return pr.html_url
+            except Exception:
+                pass
+        raise RuntimeError(f"Failed to create pull request: {exc}")
 
 
 # ── OAuth helpers ────────────────────────────────────────────────────────────

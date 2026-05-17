@@ -252,6 +252,150 @@ def _analyze_batch(
     return []
 
 
+def _detect_framework_from_files(files: list[dict]) -> str:
+    """
+    Detect the web framework from file contents and structure.
+    Returns the detected framework name or "Unknown".
+    """
+    framework_indicators = {
+        "Flask": ["from flask import", "import flask", "@app.route", "Flask(__name__)"],
+        "FastAPI": ["from fastapi import", "import fastapi", "FastAPI()", "@app.get", "@app.post"],
+        "Django": ["from django", "import django", "django.conf", "INSTALLED_APPS"],
+        "Express": ["express()", "require('express')", "app.listen(", "app.get(", "app.post("],
+        "Next.js": ["next/", "import { NextPage", "getServerSideProps", "getStaticProps"],
+        "React": ["import React", "from 'react'", "useState", "useEffect"],
+        "Vue": ["import Vue", "from 'vue'", "new Vue(", "createApp("],
+        "Spring": ["@SpringBootApplication", "@RestController", "@RequestMapping", "import org.springframework"],
+        "Rails": ["class ApplicationController", "Rails.application", "ActiveRecord::Base"],
+    }
+    
+    framework_scores = {name: 0 for name in framework_indicators}
+    
+    for file_info in files[:20]:  # Check first 20 files only
+        content = file_info['content'].lower()
+        for framework, indicators in framework_indicators.items():
+            for indicator in indicators:
+                if indicator.lower() in content:
+                    framework_scores[framework] += 1
+    
+    # Return framework with highest score
+    max_score = max(framework_scores.values())
+    if max_score > 0:
+        for framework, score in framework_scores.items():
+            if score == max_score:
+                return framework
+    
+    return "Unknown"
+
+
+def _deterministic_vuln_scan(files: list[dict], repo_url: str) -> list:
+    """
+    Deterministic vulnerability scanner - fallback when LLM fails.
+    Uses regex patterns to detect common vulnerability patterns.
+    Enhanced with more patterns and better detection.
+    """
+    from app.schemas import VulnerableEndpoint, HttpMethod
+    import re
+    
+    vulnerabilities = []
+    
+    # Vulnerability patterns (pattern, vuln_type, description, severity)
+    VULN_PATTERNS = [
+        # Path Traversal - HIGH PRIORITY
+        (r'os\.path\.join\([^)]*(?:request\.|params\.|query\.|body\.)[^)]*\)', 'path_traversal',
+         'Unsafe path construction with user input - potential path traversal', 'HIGH'),
+        (r'open\([^)]*(?:request\.|params\.|query\.)[^)]*["\']r', 'path_traversal',
+         'Direct file open with user input - potential path traversal', 'HIGH'),
+        (r'Path\([^)]*(?:request\.|params\.|query\.)[^)]*\)', 'path_traversal',
+         'Path object with user input - potential path traversal', 'HIGH'),
+        (r'readFile\([^)]*(?:req\.|params\.|query\.)[^)]*\)', 'path_traversal',
+         'File read with user input - potential path traversal', 'HIGH'),
+        
+        # SQL Injection - CRITICAL
+        (r'execute\(f["\']SELECT.*?{.*?}', 'sql_injection',
+         'SQL query with f-string interpolation - SQL injection risk', 'CRITICAL'),
+        (r'execute\(["\'].*?\+.*?(?:request\.|params\.|query\.)', 'sql_injection',
+         'SQL query with string concatenation - SQL injection risk', 'CRITICAL'),
+        (r'\.format\(.*?(?:request\.|params\.|query\.)', 'sql_injection',
+         'SQL query with .format() - SQL injection risk', 'CRITICAL'),
+        (r'query\(["\']SELECT.*?\+', 'sql_injection',
+         'SQL query with concatenation - SQL injection risk', 'CRITICAL'),
+        (r'raw\(["\']SELECT.*?%s', 'sql_injection',
+         'Raw SQL with string formatting - SQL injection risk', 'CRITICAL'),
+        
+        # Command Injection - CRITICAL
+        (r'os\.system\([^)]*(?:request\.|params\.|query\.)[^)]*\)', 'command_injection',
+         'os.system() with user input - command injection risk', 'CRITICAL'),
+        (r'subprocess\.(run|call|Popen)\([^)]*shell\s*=\s*True', 'command_injection',
+         'subprocess with shell=True - command injection risk', 'CRITICAL'),
+        (r'exec\([^)]*(?:request\.|params\.|query\.)[^)]*\)', 'command_injection',
+         'exec() with user input - arbitrary code execution', 'CRITICAL'),
+        (r'eval\([^)]*(?:request\.|params\.|query\.)[^)]*\)', 'command_injection',
+         'eval() with user input - arbitrary code execution', 'CRITICAL'),
+        
+        # Insecure Deserialization - CRITICAL
+        (r'pickle\.loads?\([^)]*(?:request\.|params\.|cookies\.)[^)]*\)', 'deserialization',
+         'pickle.loads() on user input - arbitrary code execution risk', 'CRITICAL'),
+        (r'yaml\.load\([^)]*(?:request\.|params\.)[^)]*\)', 'deserialization',
+         'yaml.load() on user input - arbitrary code execution risk', 'CRITICAL'),
+        (r'jsonpickle\.decode\([^)]*(?:request\.|params\.)[^)]*\)', 'deserialization',
+         'jsonpickle.decode() on user input - code execution risk', 'CRITICAL'),
+        (r'marshal\.loads?\([^)]*(?:request\.|params\.)[^)]*\)', 'deserialization',
+         'marshal.loads() on user input - code execution risk', 'CRITICAL'),
+        
+        # XSS - HIGH
+        (r'render_template_string\([^)]*(?:request\.|params\.|query\.)[^)]*\)', 'xss',
+         'render_template_string with user input - XSS risk', 'HIGH'),
+        (r'\.innerHTML\s*=\s*.*?(?:req\.|params\.|query\.)', 'xss',
+         'innerHTML assignment with user input - XSS risk', 'HIGH'),
+        (r'document\.write\([^)]*(?:req\.|params\.|query\.)[^)]*\)', 'xss',
+         'document.write with user input - XSS risk', 'HIGH'),
+        
+        # SSRF - HIGH
+        (r'requests\.(?:get|post|put|delete)\([^)]*(?:request\.|params\.|query\.)[^)]*\)', 'ssrf',
+         'HTTP request with user-controlled URL - SSRF risk', 'HIGH'),
+        (r'urllib\.request\.urlopen\([^)]*(?:request\.|params\.)[^)]*\)', 'ssrf',
+         'URL open with user input - SSRF risk', 'HIGH'),
+        (r'fetch\([^)]*(?:req\.|params\.|query\.)[^)]*\)', 'ssrf',
+         'fetch() with user-controlled URL - SSRF risk', 'HIGH'),
+        
+        # Hardcoded Secrets - MEDIUM
+        (r'(?:password|secret|api_key|token)\s*=\s*["\'][^"\']{8,}["\']', 'hardcoded_secret',
+         'Hardcoded credential detected', 'MEDIUM'),
+        (r'(?:AWS_ACCESS_KEY|AWS_SECRET|GITHUB_TOKEN)\s*=\s*["\'][^"\']+["\']', 'hardcoded_secret',
+         'Hardcoded API credential detected', 'MEDIUM'),
+    ]
+    
+    for file_info in files:
+        content = file_info['content']
+        path = file_info['path']
+        
+        # Skip test files
+        if 'test' in path.lower() or 'spec' in path.lower():
+            continue
+        
+        for pattern, vuln_type, description, severity in VULN_PATTERNS:
+            matches = list(re.finditer(pattern, content, re.IGNORECASE | re.MULTILINE))
+            for match in matches:
+                # Find line number
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Extract the actual vulnerable code snippet
+                lines = content.splitlines()
+                if 0 <= line_num - 1 < len(lines):
+                    code_snippet = lines[line_num - 1].strip()[:100]
+                else:
+                    code_snippet = match.group(0)[:100]
+                
+                vulnerabilities.append(VulnerableEndpoint(
+                    path=f"{path}:{line_num}",
+                    method=HttpMethod.GET,
+                    injection_vector=f"[{severity}] {description}\nCode: {code_snippet}"
+                ))
+    
+    return vulnerabilities
+
+
 @omium.trace("recon_agent", span_type="agent")
 def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
     """
@@ -260,6 +404,8 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
 
     For large repos, splits files into multiple batches and analyzes
     each batch separately, then merges all discovered vulnerabilities.
+    
+    If LLM fails, falls back to deterministic pattern matching.
     """
     from app.github_service import read_repo_files
 
@@ -300,31 +446,60 @@ def run_recon_source(repo_dir: str, repo_url: str) -> ReconOutput:
             [len(b) for b in batches],
         )
 
-        # Step 3: analyze each batch
-        client = _get_client()
-        system_prompt = _build_system_prompt(repo_url)
-
+        # Step 3: Try LLM analysis first
         all_endpoints = []
         detected_framework = "Unknown"
+        llm_failed = False
 
-        for i, batch in enumerate(batches, 1):
-            logger.info(
-                "Recon batch %d/%d: analyzing %d files (%s ...)",
-                i, num_batches, len(batch),
-                ", ".join(f["path"] for f in batch[:3]),
-            )
+        try:
+            client = _get_client()
+            system_prompt = _build_system_prompt(repo_url)
 
-            batch_endpoints = _analyze_batch(
-                client, batch, repo_url, system_prompt, i, num_batches,
-            )
-            all_endpoints.extend(batch_endpoints)
+            for i, batch in enumerate(batches, 1):
+                logger.info(
+                    "Recon batch %d/%d: analyzing %d files (%s ...)",
+                    i, num_batches, len(batch),
+                    ", ".join(f["path"] for f in batch[:3]),
+                )
 
-            logger.info(
-                "Recon batch %d/%d: found %d vulnerabilities",
-                i, num_batches, len(batch_endpoints),
-            )
+                batch_endpoints = _analyze_batch(
+                    client, batch, repo_url, system_prompt, i, num_batches,
+                )
+                all_endpoints.extend(batch_endpoints)
 
-        # Step 4: deduplicate endpoints (same file+method+vector = same vuln)
+                logger.info(
+                    "Recon batch %d/%d: found %d vulnerabilities",
+                    i, num_batches, len(batch_endpoints),
+                )
+                
+                # Extract framework from first successful batch
+                if detected_framework == "Unknown" and batch_endpoints:
+                    # Try to detect framework from file extensions and imports
+                    detected_framework = _detect_framework_from_files(batch)
+        except Exception as exc:
+            logger.warning("LLM analysis failed: %s - falling back to deterministic scan", exc)
+            llm_failed = True
+            span.add_event("llm_failed_fallback_to_deterministic")
+
+        # Step 4: ALWAYS run deterministic scan as a complement
+        # This ensures we catch vulnerabilities even if LLM misses them
+        logger.info("Running deterministic vulnerability scan...")
+        deterministic_vulns = _deterministic_vuln_scan(files, repo_url)
+        
+        # Merge LLM and deterministic results
+        if deterministic_vulns:
+            logger.info("Deterministic scan found %d vulnerabilities", len(deterministic_vulns))
+            all_endpoints.extend(deterministic_vulns)
+            span.set_attribute("recon.deterministic_vuln_count", len(deterministic_vulns))
+        
+        if llm_failed:
+            span.set_attribute("recon.used_deterministic_fallback", True)
+        
+        # Detect framework if not already detected
+        if detected_framework == "Unknown":
+            detected_framework = _detect_framework_from_files(files)
+
+        # Step 5: deduplicate endpoints (same file+method+vector = same vuln)
         seen = set()
         unique_endpoints = []
         for ep in all_endpoints:
@@ -460,13 +635,18 @@ def run_recon(target_url: str) -> ReconOutput:
         )
 
         raw_json = response.choices[0].message.content
-        logger.info("LLM recon response: %s", raw_json[:500])
-        span.set_attribute("llm.prompt_tokens", response.usage.prompt_tokens)
-        span.set_attribute("llm.completion_tokens", response.usage.completion_tokens)
-        span.set_attribute("agent.decision_rationale", raw_json[:500])
+        if raw_json:
+            logger.info("LLM recon response: %s", raw_json[:500])
+            span.set_attribute("agent.decision_rationale", raw_json[:500])
+        
+        if response.usage:
+            span.set_attribute("llm.prompt_tokens", response.usage.prompt_tokens)
+            span.set_attribute("llm.completion_tokens", response.usage.completion_tokens)
 
         # Step 3: validate through Pydantic contract
         try:
+            if not raw_json:
+                raise ValueError("LLM returned empty response")
             result = ReconOutput.model_validate_json(raw_json)
         except Exception as exc:
             # Fallback: if LLM output is malformed, construct from probe data

@@ -54,6 +54,9 @@ async def scan_stream(scan_id: str):
     """
     Server-Sent Events endpoint for real-time scan progress.
     Streams ScanEvent JSON objects as they arrive.
+
+    Sends an initial 'connected' event so the client knows the stream is alive,
+    then keepalives every 30s to prevent proxy timeouts.
     """
     queue = get_scan_queue(scan_id)
     if queue is None:
@@ -61,9 +64,16 @@ async def scan_stream(scan_id: str):
 
     async def event_generator():
         try:
+            # Send an immediate connection-confirmation event so the client
+            # knows the stream is alive before any pipeline events arrive.
+            yield {
+                "event": "connected",
+                "data": json.dumps({"scan_id": scan_id, "status": "stream_connected"}),
+            }
+
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=120)
+                    event = await asyncio.wait_for(queue.get(), timeout=30)
                     yield {
                         "event": event.stage.value,
                         "data": event.model_dump_json(),
@@ -72,12 +82,26 @@ async def scan_stream(scan_id: str):
                     if event.stage.value in ("completed", "failed"):
                         break
                 except asyncio.TimeoutError:
-                    # Send keepalive
+                    # Check if the scan queue is still valid (scan may have
+                    # been cleaned up while we were waiting)
+                    if get_scan_queue(scan_id) is None:
+                        logger.info("Scan %s queue removed, closing SSE", scan_id)
+                        break
+                    # Send keepalive to prevent proxy/browser timeout
                     yield {"event": "keepalive", "data": "{}"}
         except asyncio.CancelledError:
             logger.info("SSE stream cancelled for scan %s", scan_id)
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+        # Tell browsers to wait 5s between reconnect attempts
+        ping=0,
+    )
 
 
 @router.get("/scan/{scan_id}")

@@ -61,6 +61,10 @@ export async function startScan(repoUrl, baseBranch = 'main') {
 /**
  * Subscribe to real-time SSE events for a scan.
  *
+ * Uses manual reconnection with exponential backoff + jitter instead of
+ * relying on the browser's native EventSource auto-reconnect, which fires
+ * too rapidly and exhausts retry budgets.
+ *
  * @param {string} scanId
  * @param {(event: ScanEvent) => void} onEvent  - called for every stage event
  * @param {(err: Error) => void}       onError  - called on fatal error
@@ -68,63 +72,94 @@ export async function startScan(repoUrl, baseBranch = 'main') {
  */
 export function streamScan(scanId, onEvent, onError) {
   const url = `${BASE}/api/scan/${scanId}/stream`;
-  const es = new EventSource(url, { withCredentials: true });
 
   // The backend sets `event:` to the stage name, `data:` to JSON
   const STAGES = ['queued','cloning','recon','exploit','verify','patch','pushing','completed','failed'];
 
-  // Track whether we've hit a terminal state (completed/failed)
+  // ── Reconnection state ──
   let terminated = false;
   let retryCount = 0;
-  const MAX_RETRIES = 8;
+  const MAX_RETRIES = 15;             // generous budget for long-running scans
+  const BASE_DELAY_MS = 1000;         // 1s initial backoff
+  const MAX_DELAY_MS = 30000;         // cap at 30s
+  let reconnectTimer = null;
+  let es = null;
 
-  STAGES.forEach(stage => {
-    es.addEventListener(stage, (e) => {
-      try {
-        // Connection succeeded — reset retry counter
-        retryCount = 0;
-        const data = JSON.parse(e.data);
-        onEvent({ ...data, stage });
+  function connect() {
+    if (terminated) return;
 
-        // Mark terminal so we don't treat post-close errors as failures
-        if (stage === 'completed' || stage === 'failed') {
-          terminated = true;
-        }
-      } catch (err) {
-        console.warn('Failed to parse SSE data:', e.data);
-      }
+    es = new EventSource(url, { withCredentials: true });
+
+    // ── "connected" — server confirms stream is alive ──
+    es.addEventListener('connected', () => {
+      retryCount = 0;  // healthy connection — reset
     });
-  });
 
-  es.addEventListener('keepalive', () => {
-    // Keepalive received — connection is healthy, reset retry counter
-    retryCount = 0;
-  });
+    // ── Stage events ──
+    STAGES.forEach(stage => {
+      es.addEventListener(stage, (e) => {
+        try {
+          retryCount = 0;  // any data event = healthy
+          const data = JSON.parse(e.data);
+          onEvent({ ...data, stage });
 
-  es.onerror = () => {
-    // After a terminal event, ignore close/error — it's expected
-    if (terminated) {
+          if (stage === 'completed' || stage === 'failed') {
+            terminated = true;
+            es.close();
+          }
+        } catch (err) {
+          console.warn('Failed to parse SSE data:', e.data);
+        }
+      });
+    });
+
+    // ── Keepalive ──
+    es.addEventListener('keepalive', () => {
+      retryCount = 0;
+    });
+
+    // ── Error handling with manual reconnection ──
+    es.onerror = () => {
+      // After a terminal event the server closes the stream — expected
+      if (terminated) {
+        es.close();
+        return;
+      }
+
+      // Close the broken EventSource immediately so the browser doesn't
+      // auto-reconnect underneath our manual backoff logic.
       es.close();
-      return;
-    }
-    // EventSource auto-reconnects; only fatal-out after max retries
-    if (es.readyState === EventSource.CLOSED) {
-      // Browser gave up reconnecting
-      onError(new Error('SSE connection closed unexpectedly'));
-      return;
-    }
-    retryCount++;
-    if (retryCount > MAX_RETRIES) {
-      es.close();
-      onError(new Error('SSE connection failed after multiple retries'));
-    }
-    // Otherwise, let EventSource auto-reconnect silently
-  };
+
+      retryCount++;
+
+      if (retryCount > MAX_RETRIES) {
+        onError(new Error(
+          `SSE connection failed after ${MAX_RETRIES} retries — ` +
+          `check that the backend is running and the scan is still active`
+        ));
+        return;
+      }
+
+      // Exponential backoff with jitter
+      const delay = Math.min(
+        BASE_DELAY_MS * Math.pow(2, retryCount - 1) + Math.random() * 500,
+        MAX_DELAY_MS,
+      );
+      console.info(
+        `[SSE] reconnecting in ${Math.round(delay)}ms (attempt ${retryCount}/${MAX_RETRIES})`
+      );
+      reconnectTimer = setTimeout(connect, delay);
+    };
+  }
+
+  // Start the initial connection
+  connect();
 
   // Return cleanup fn
   return () => {
     terminated = true;
-    es.close();
+    clearTimeout(reconnectTimer);
+    es?.close();
   };
 }
 

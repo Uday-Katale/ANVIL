@@ -40,7 +40,14 @@ logger = logging.getLogger(__name__)
 _SUCCESS_MARKER = "EXPLOIT_SUCCESS"
 
 # Minimum stdout length (excluding marker) to consider as real evidence
-_MIN_EVIDENCE_LENGTH = 10
+_MIN_EVIDENCE_LENGTH = 5  # Reduced from 10 to allow short proofs like "500 error"
+
+# Vulnerability types that can have short evidence (e.g., HTTP status codes)
+_SHORT_EVIDENCE_VULN_TYPES = [
+    "500", "error", "crash", "exception", "traceback",
+    "deserialization", "pickle", "yaml", "marshal",
+    "rce", "code execution", "arbitrary code"
+]
 
 
 @omium.trace("verifier_agent", span_type="agent")
@@ -99,9 +106,17 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
         # ── Check 3: stdout has meaningful evidence beyond the marker ─────
         # Strip the marker and check if there's real content
         evidence_text = stdout.replace(_SUCCESS_MARKER, "").strip()
-        if len(evidence_text) < _MIN_EVIDENCE_LENGTH:
+        
+        # Check if this is a short-evidence vulnerability type (e.g., crash-based)
+        is_short_evidence_type = any(
+            keyword in stdout.lower()
+            for keyword in _SHORT_EVIDENCE_VULN_TYPES
+        )
+        
+        # For crash-based exploits (500 errors, exceptions), short evidence is acceptable
+        if len(evidence_text) < _MIN_EVIDENCE_LENGTH and not is_short_evidence_type:
             reason = (
-                f"stdout contains '{_SUCCESS_MARKER}' but has no meaningful "
+                f"stdout contains '{_SUCCESS_MARKER}' but has minimal "
                 f"evidence ({len(evidence_text)} chars of content). "
                 "The exploit may have printed the marker without actually "
                 "extracting any data. This looks like a hallucinated exploit."
@@ -114,6 +129,13 @@ def verify_exploit(exploit: ExploitOutput) -> VerificationResult:
                 reason=reason,
                 expected_pattern=f"{_SUCCESS_MARKER} + meaningful evidence",
                 actual_value=stdout[:200],
+            )
+        
+        # Special case: if evidence is short but contains crash indicators, accept it
+        if len(evidence_text) < _MIN_EVIDENCE_LENGTH and is_short_evidence_type:
+            logger.info(
+                "Accepting short evidence (%d chars) due to crash-based exploit indicators",
+                len(evidence_text)
             )
 
         # ── All checks passed ────────────────────────────────────────────

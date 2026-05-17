@@ -184,11 +184,18 @@ export function useScan() {
         },
         // onError — uses phaseRef to avoid stale closure
         (err) => {
+          const currentPhase = phaseRef.current;
           // Don't treat a closed connection after completion as an error
-          if (phaseRef.current === 'complete') return;
-          addLog(`✗ SSE connection error: ${err.message}`, 'warn');
-          setError(err.message);
-          setPhaseTracked('failed');
+          if (currentPhase === 'complete' || currentPhase === 'failed') return;
+
+          addLog(`⚠ SSE connection lost: ${err.message}`, 'warn');
+          addLog(`  ↳ The scan may still be running on the server. Check backend logs.`, 'system');
+
+          // Only transition to failed if we were actively scanning
+          if (currentPhase === 'scanning') {
+            setError(`Connection lost: ${err.message}`);
+            setPhaseTracked('failed');
+          }
         },
       );
     } catch (err) {

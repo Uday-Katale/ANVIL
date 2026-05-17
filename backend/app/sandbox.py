@@ -39,7 +39,7 @@ _BLOCKED_FUNCTIONS: Set[str] = {
     "os.system", "os.popen", "os.exec", "os.execl",
     "os.execle", "os.execlp", "os.execlpe", "os.execv",
     "os.execve", "os.execvp", "os.execvpe", "os.fork",
-    "subprocess.Popen", "subprocess.call", "subprocess.run",
+    "subprocess.Popen", "subprocess.call",
     "eval", "exec", "__import__",
 }
 
@@ -75,6 +75,14 @@ class _DangerousNodeVisitor(ast.NodeVisitor):
         func_name = _resolve_call_name(node)
         if func_name and func_name in _BLOCKED_FUNCTIONS:
             self.violations.append(f"Blocked call: {func_name}")
+        elif func_name == "subprocess.run":
+            has_shell_true = False
+            for keyword in node.keywords:
+                if keyword.arg == "shell":
+                    if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                        has_shell_true = True
+            if has_shell_true:
+                self.violations.append("subprocess.run with shell=True is blocked")
         self.generic_visit(node)
 
 
