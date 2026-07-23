@@ -62,7 +62,7 @@ These problems are not hypothetical. They are the primary reasons security teams
 
 ## The Solution
 
-A.E.G.I.S. eliminates all three failure modes through a mathematically grounded architecture:
+A.E.G.I.S. eliminates all three failure modes through a mathematically grounded architecture:-
 
 - **A Colored Petri Net (CPN) execution engine** replaces free-form agent chaining with deterministic, graph-based orchestration. The LLM is never consulted for routing decisions — pure Python `if/else` logic governs all state transitions.
 - **A dedicated Verifier Agent** (zero LLM dependency) acts as a cryptographic checkpoint: exploit output must contain deterministic proof markers (`FLAG{...}` or `EXPLOIT_SUCCESS`) before the pipeline advances. This is the anti-hallucination gate.
