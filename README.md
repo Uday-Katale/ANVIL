@@ -556,15 +556,6 @@ A.E.G.I.S. draws on ideas from several areas of academic and industry research. 
 
 ---
 
-## Contributors
-
-- [Aniket Krishna Ingale](https://github.com/DevOpsDreamer)
-- [Sumeet Ravindra Gite](https://github.com/Sumeet2386)
-- [Harshal Andhale](https://github.com/HarshalAndhale9657)
-- [Ansh Jaiswal](https://github.com/Ansh-1019)
-
----
-
 ## License
 
 This project was built for the Multi-Agent Autonomy Hackathon (PS3 Track).
